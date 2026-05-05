@@ -3,25 +3,31 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// ── Config ──
+// ── Game config ──
 const W = 8000, H = 8000;
-const TICK         = 45;
-const SPEED        = 7.0;           // -30% from original
-const BOOST_SPEED  = SPEED * 1.5;   // +50% boost
-const BOOST_TICKS  = 44;            // 2s boost
-const COOLDOWN_T   = 111;           // 5s cooldown
-const TURN         = 0.17;
-const FOOD_N       = 1400;          // -30% food count
-const INIT_LEN     = 55;
-const MAX_LEN      = 450;
-const RESPAWN_T    = 55;
-const BOT_COUNT    = 5;
+const TICK        = 45;
+const SPEED       = 7.0;
+const BOOST_SPEED = SPEED * 1.5;
+const BOOST_TICKS = 44;
+const COOLDOWN_T  = 111;
+const TURN        = 0.17;
+const FOOD_N      = 1400;
+const INIT_LEN    = 55;
+const MAX_LEN     = 450;
+const RESPAWN_T   = 55;
+const BOT_COUNT   = 5;
 
-// Food types: 0=small, 1=medium, 2=large
-const FOOD_GROWTH = [0.2, 1/3, 1.0]; // segments per eat (need 5/3/1 to gain 1 segment)
-const FOOD_RADIUS = [3, 5, 7];        // -50% smaller food
+const FOOD_GROWTH = [0.2, 1/3, 1.0];
+const FOOD_RADIUS = [3, 5, 7];
+const R_MIN = 14, R_MAX = 32, VISUAL_REF = 150;
 
-const R_MIN = 14, R_MAX = 32, VISUAL_REF = 150; // growth formula params
+// ── Perf config ──
+// Viewport half-size + buffer sent to each client (world units).
+// A 1920×1080 screen = 1920×1080 world units at 1:1 scale.
+// Adding ~600 unit buffer so snakes pop in smoothly before entering frame.
+const VIEW_W  = 1600; // half-width
+const VIEW_H  = 1100; // half-height
+const SEG_STEP = 2;   // send every Nth segment for non-self players
 
 const COLORS = [
   '#4ade80','#f97316','#3b82f6','#ec4899',
@@ -48,9 +54,12 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server: httpServer });
 
 let players = {};
-let food = [];
-let nextId = 1;
-let colIdx = 0;
+let food    = [];
+let nextId  = 1;
+let colIdx  = 0;
+
+// id → WebSocket (for per-client viewport messages)
+const wsMap = new Map();
 
 // ── Utils ──
 function rnd(n) { return Math.random() * n; }
@@ -62,10 +71,39 @@ function angleDiff(a, b) {
   return d;
 }
 
-// Visual segment radius — grows with targetLen (sqrt curve = fast initial growth)
 function segR(tlen) {
   const t = Math.min(1, (tlen - INIT_LEN) / (VISUAL_REF - INIT_LEN));
   return R_MIN + Math.sqrt(t) * (R_MAX - R_MIN);
+}
+
+// ── Payload helpers ──
+// Send every SEG_STEP-th segment for non-self players to cut bandwidth.
+// Always include head (index 0) and tail for visual continuity.
+function thinSegs(segs) {
+  if (segs.length <= 4) return segs;
+  const out = [segs[0]];
+  for (let i = SEG_STEP; i < segs.length - 1; i += SEG_STEP) out.push(segs[i]);
+  out.push(segs[segs.length - 1]);
+  return out;
+}
+
+function playerPayload(p, isSelf) {
+  return {
+    s:     isSelf ? p.segs : thinSegs(p.segs),
+    a:     p.angle,
+    c:     p.color,
+    n:     p.name,
+    ht:    p.headType,
+    alive: p.alive,
+    rt:    p.respawn,
+    sc:    p.score,
+    kl:    p.kills,
+    len:   p.segs.length,
+    tlen:  p.targetLen,
+    bo:    p.boostActive,
+    bcd:   p.boostCooldown,
+    bot:   p.isBot,
+  };
 }
 
 // ── Snake factory ──
@@ -83,6 +121,7 @@ function mkSnake(name, color, isBot=false, headType=0) {
     targetLen: INIT_LEN, growthAcc: 0, score: 0, kills: 0,
     alive: true, respawn: 0,
     boostActive: false, boostTimer: 0, boostCooldown: 0,
+    _lastHead: null,
     _botTick: 0, _botTarget: null,
   };
 }
@@ -91,7 +130,7 @@ function mkSnake(name, color, isBot=false, headType=0) {
 function fillFood() {
   while (food.length < FOOD_N) {
     const r = Math.random();
-    const type = r < 0.60 ? 0 : r < 0.90 ? 1 : 2; // 60% small, 30% medium, 10% large
+    const type = r < 0.60 ? 0 : r < 0.90 ? 1 : 2;
     food.push([Math.round(rnd(W)), Math.round(rnd(H)), Math.floor(rnd(COLORS.length)), type]);
   }
 }
@@ -100,7 +139,6 @@ function dropFood(segs) {
   const step = Math.max(1, Math.floor(segs.length / 30));
   for (let i = 0; i < segs.length; i += step) {
     const [fx, fy] = segs[i];
-    // Drop as medium food
     food.push([
       Math.round(Math.max(10, Math.min(W-10, fx + rnd(22)-11))),
       Math.round(Math.max(10, Math.min(H-10, fy + rnd(22)-11))),
@@ -115,25 +153,22 @@ function botAI(bot) {
   const [hx, hy] = bot.segs[0];
   bot._botTick++;
 
-  // Wall avoidance — priority
   const margin = 500;
   if (hx < margin || hx > W-margin || hy < margin || hy > H-margin) {
-    const toCenter = Math.atan2(H/2 - hy, W/2 - hx);
-    bot.targetAngle = toCenter + (rnd(1)-0.5)*0.2;
+    bot.targetAngle = Math.atan2(H/2 - hy, W/2 - hx) + (rnd(1)-0.5)*0.2;
     if (!bot.boostActive && !bot.boostCooldown) {
       bot.boostActive = true; bot.boostTimer = BOOST_TICKS;
     }
     return;
   }
 
-  // Chase nearest large food first, else any food (sample 80 items)
   if (bot._botTick % 30 === 0 || !bot._botTarget) {
     let best = null, bestScore = Infinity;
     const n = Math.min(food.length, 80);
     for (let i = 0; i < n; i++) {
       const f = food[Math.floor(rnd(food.length))];
       const dd = d2(hx, hy, f[0], f[1]);
-      const score = dd / (f[3]+1); // prefer large food (type 2)
+      const score = dd / (f[3]+1);
       if (score < bestScore) { bestScore = score; best = f; }
     }
     bot._botTarget = best;
@@ -144,7 +179,6 @@ function botAI(bot) {
     if (d2(hx, hy, bot._botTarget[0], bot._botTarget[1]) < 625) bot._botTarget = null;
   }
 
-  // Random boost
   if (!bot.boostActive && !bot.boostCooldown && rnd(1) < 0.006) {
     bot.boostActive = true; bot.boostTimer = BOOST_TICKS;
   }
@@ -161,21 +195,20 @@ function initBots() {
 function tick() {
   const entries = Object.entries(players);
 
-  // Bot AI
   for (const [, p] of entries) { if (p.isBot) botAI(p); }
 
-  // Move all snakes
   for (const [, p] of entries) {
     if (!p.alive) {
-      if (--p.respawn <= 0) Object.assign(p, mkSnake(p.name, p.color, p.isBot, p.headType));
+      if (--p.respawn <= 0) {
+        const fresh = mkSnake(p.name, p.color, p.isBot, p.headType);
+        Object.assign(p, fresh);
+      }
       continue;
     }
 
-    // Turn
     const diff = angleDiff(p.targetAngle, p.angle);
     p.angle += Math.sign(diff) * Math.min(Math.abs(diff), TURN);
 
-    // Boost timer
     if (p.boostActive) {
       if (--p.boostTimer <= 0) { p.boostActive = false; p.boostCooldown = COOLDOWN_T; }
     }
@@ -186,8 +219,8 @@ function tick() {
     const nx = hx + Math.cos(p.angle) * spd;
     const ny = hy + Math.sin(p.angle) * spd;
 
-    // Wall → die
     if (nx < 0 || nx > W || ny < 0 || ny > H) {
+      p._lastHead = p.segs[0];
       dropFood(p.segs);
       p.alive = false; p.respawn = RESPAWN_T; p.segs = [];
       continue;
@@ -195,7 +228,6 @@ function tick() {
 
     p.segs.unshift([nx, ny]);
 
-    // Eat food
     const myR = segR(p.targetLen);
     for (let i = food.length-1; i >= 0; i--) {
       const [fx, fy, , ftype] = food[i];
@@ -214,8 +246,7 @@ function tick() {
     if (p.segs.length > p.targetLen) p.segs.length = p.targetLen;
   }
 
-  // ── Collision: head touches OTHER snake's body → die ──
-  // No self-collision. No wall re-check (already handled above).
+  // ── Collision ──
   const alive = entries.filter(([,p]) => p.alive && p.segs.length > 0);
   for (const [id, p] of alive) {
     if (!p.alive) continue;
@@ -223,13 +254,13 @@ function tick() {
     const myR = segR(p.targetLen);
 
     for (const [oid, other] of alive) {
-      if (oid === id) continue; // skip self
+      if (oid === id) continue;
       const oR = segR(other.targetLen);
       const killD2 = (myR * 0.75 + oR * 0.75) ** 2;
 
-      // Check other snake body (skip first 2 segs near their head)
       for (let i = 2; i < other.segs.length; i += 2) {
         if (d2(hx, hy, other.segs[i][0], other.segs[i][1]) < killD2) {
+          p._lastHead = p.segs[0];
           dropFood(p.segs);
           p.alive = false; p.respawn = RESPAWN_T; p.segs = [];
           if (!other.isBot) other.kills++;
@@ -242,29 +273,42 @@ function tick() {
 
   fillFood();
 
-  // Broadcast
-  const msg = JSON.stringify({
-    t: 's',
-    p: Object.fromEntries(entries.map(([id, p]) => [id, {
-      s: p.segs,
-      a: p.angle,
-      c: p.color,
-      n: p.name,
-      ht: p.headType,
-      alive: p.alive,
-      rt: p.respawn,
-      sc: p.score,
-      kl: p.kills,
-      len: p.segs.length,
-      tlen: p.targetLen,
-      bo: p.boostActive,
-      bcd: p.boostCooldown,
-      bot: p.isBot,
-    }])),
-    f: food,
-  });
+  // ── Per-client broadcast with viewport culling ──
+  // Each client only receives entities within their visible area + buffer.
+  // This cuts payload from ~150KB to ~5-10KB for typical player density.
+  for (const [cid, cws] of wsMap) {
+    if (cws.readyState !== 1) continue;
+    const me = players[cid];
+    if (!me) continue;
 
-  wss.clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg); });
+    // Viewport center: use head if alive, last known head if dead
+    const center = (me.alive && me.segs.length)
+      ? me.segs[0]
+      : (me._lastHead || [W/2, H/2]);
+    const [cx, cy] = center;
+
+    const visP = {};
+    for (const [pid, p] of entries) {
+      if (pid === cid) {
+        // Always send self (needed for HUD: score, respawn timer, boost)
+        visP[pid] = playerPayload(p, true);
+        continue;
+      }
+      // Skip dead players — they're invisible to others anyway
+      if (!p.segs.length) continue;
+      // Viewport check (rectangular, fast)
+      const [phx, phy] = p.segs[0];
+      if (Math.abs(phx - cx) > VIEW_W || Math.abs(phy - cy) > VIEW_H) continue;
+      visP[pid] = playerPayload(p, false);
+    }
+
+    // Only food in viewport
+    const visF = food.filter(([fx, fy]) =>
+      Math.abs(fx - cx) <= VIEW_W && Math.abs(fy - cy) <= VIEW_H
+    );
+
+    cws.send(JSON.stringify({ t: 's', p: visP, f: visF }));
+  }
 }
 
 fillFood();
@@ -273,6 +317,8 @@ setInterval(tick, TICK);
 
 wss.on('connection', ws => {
   const id = String(nextId++);
+  wsMap.set(id, ws);
+
   ws.on('message', raw => {
     try {
       const d = JSON.parse(raw);
@@ -289,7 +335,11 @@ wss.on('connection', ws => {
       }
     } catch {}
   });
-  ws.on('close', () => delete players[id]);
+
+  ws.on('close', () => {
+    delete players[id];
+    wsMap.delete(id);
+  });
 });
 
 const PORT = process.env.PORT || 3000;
