@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>SNAKE.IO × RITUAL</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#050505;overflow:hidden;font-family:'Courier New',monospace;color:#fff;user-select:none;}
+canvas{display:block;}
+
+/* ── LOBBY ── */
+#lobby{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#050505;}
+.logo{font-size:4.5rem;font-weight:900;letter-spacing:.25em;background:linear-gradient(135deg,#6366f1,#a855f7,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.tagline{font-size:.58rem;letter-spacing:.4em;color:#222;margin:.5rem 0 2rem;}
+#ni{background:#0f0f0f;border:1px solid #222;color:#fff;padding:.8rem 1.2rem;width:300px;font:1rem 'Courier New';outline:none;}
+#ni:focus{border-color:#6366f1;}
+#ni::placeholder{color:#222;}
+.head-label{font-size:.52rem;letter-spacing:.2em;color:#333;margin:1.2rem 0 .6rem;align-self:flex-start;margin-left:calc(50% - 150px);}
+#head-picker{display:flex;gap:.5rem;}
+.hpick{width:56px;height:56px;border:1px solid #1a1a1a;background:#0f0f0f;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;transition:border-color .15s;}
+.hpick.active{border-color:#6366f1;}
+.hpick canvas{display:block;}
+.hpick .hn{font-size:.38rem;color:#333;letter-spacing:.1em;}
+.hpick.active .hn{color:#6366f1;}
+#pb{display:block;width:300px;margin-top:1rem;background:#6366f1;border:none;color:#fff;padding:.8rem;font:1rem 'Courier New';letter-spacing:.15em;cursor:pointer;}
+#pb:hover{background:#4f46e5;}
+.hint{margin-top:1.5rem;font-size:.55rem;color:#1a1a1a;letter-spacing:.12em;text-align:center;line-height:2.1;}
+
+/* Wallet section in lobby */
+#wallet-section{margin-top:1.2rem;display:flex;flex-direction:column;align-items:center;gap:.35rem;}
+#wallet-btn{background:transparent;border:1px solid #1f1f1f;color:#2a2a2a;padding:.5rem 1.4rem;font:.52rem 'Courier New';letter-spacing:.22em;cursor:pointer;transition:all .15s;width:300px;}
+#wallet-btn:hover{border-color:#6366f1;color:#6366f1;}
+#wallet-btn.connected{border-color:#10b981;color:#10b981;}
+#wallet-addr{font-size:.44rem;color:#1a1a1a;letter-spacing:.12em;}
+
+/* ── HUD ── */
+#hud{position:fixed;inset:0;pointer-events:none;display:none;z-index:10;}
+#hud.on{display:block;}
+#score{position:absolute;top:1rem;left:1rem;}
+.sv{font-size:2.4rem;font-weight:900;line-height:1;}
+.sl{font-size:.5rem;letter-spacing:.2em;color:#222;margin-bottom:.5rem;}
+
+#boost-wrap{margin-top:.8rem;}
+.boost-label{font-size:.5rem;letter-spacing:.2em;color:#222;margin-bottom:.3rem;}
+#boost-bar-bg{width:110px;height:5px;background:#111;}
+#boost-bar{height:100%;width:100%;transition:width .1s,background .2s;}
+#boost-status{font-size:.6rem;letter-spacing:.15em;margin-top:.3rem;color:#6366f1;}
+.boost-hint{font-size:.44rem;color:#1a1a1a;letter-spacing:.12em;margin-top:.2rem;}
+
+#food-legend{margin-top:1rem;}
+.fl-title{font-size:.5rem;letter-spacing:.2em;color:#222;margin-bottom:.4rem;}
+.fl-row{display:flex;align-items:center;gap:.5rem;font-size:.55rem;color:#333;margin-bottom:.2rem;}
+.fl-dot{border-radius:50%;flex-shrink:0;}
+
+/* Leaderboard */
+#lb{position:absolute;top:1rem;right:1rem;width:185px;pointer-events:all;}
+.lb-tabs{display:flex;gap:.4rem;margin-bottom:.35rem;}
+.lb-tab{font-size:.42rem;letter-spacing:.18em;color:#1a1a1a;background:none;border:none;border-bottom:1px solid transparent;cursor:pointer;padding:.1rem .2rem;transition:all .12s;}
+.lb-tab.active{color:#6366f1;border-bottom-color:#6366f1;}
+.lb-h{font-size:.5rem;letter-spacing:.25em;color:#1e1e1e;border-bottom:1px solid #0d0d0d;padding-bottom:.3rem;margin-bottom:.4rem;}
+.lb-row{display:flex;justify-content:space-between;align-items:center;padding:.2rem 0;font-size:.68rem;border-bottom:1px solid #0a0a0a;}
+.lb-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;}
+.lb-s{font-size:.6rem;color:#6366f1;}
+#lb-onchain{display:none;}
+#lb-refresh{font-size:.42rem;color:#1a1a1a;letter-spacing:.1em;background:none;border:none;cursor:pointer;margin-top:.3rem;pointer-events:all;}
+#lb-refresh:hover{color:#6366f1;}
+#lb-empty{font-size:.5rem;color:#1a1a1a;letter-spacing:.12em;padding:.5rem 0;text-align:center;}
+
+/* Dead overlay */
+#dead{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;}
+#dead.show{display:flex;}
+.dt{font-size:3rem;font-weight:900;letter-spacing:.3em;color:#ef4444;}
+.ds{font-size:.6rem;color:#333;letter-spacing:.2em;}
+.dbar{width:180px;height:2px;background:#111;margin-top:.5rem;}
+.dfill{height:100%;background:#ef4444;}
+
+/* Minimap & player count */
+#mm{position:absolute;bottom:1rem;right:1rem;border:1px solid #111;}
+#pc{position:absolute;bottom:2.8rem;left:1rem;font-size:.5rem;color:#1a1a1a;letter-spacing:.15em;}
+
+/* Wallet HUD indicator */
+#wallet-hud{position:absolute;bottom:1rem;left:1rem;display:flex;align-items:center;gap:.4rem;}
+#wallet-dot{width:6px;height:6px;border-radius:50%;background:#1a1a1a;flex-shrink:0;}
+#wallet-dot.on{background:#10b981;}
+#wallet-hud-txt{font-size:.44rem;color:#1a1a1a;letter-spacing:.12em;}
+
+/* ── SIGN MODAL ── */
+#sign-modal{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.75);}
+#sign-modal.show{display:flex;}
+#sign-box{background:#080808;border:1px solid #222;padding:2rem 2.2rem;min-width:290px;display:flex;flex-direction:column;gap:.8rem;}
+#sign-title{font-size:.65rem;letter-spacing:.3em;color:#6366f1;}
+.sign-stat{display:flex;justify-content:space-between;font-size:.62rem;letter-spacing:.12em;border-bottom:1px solid #0d0d0d;padding:.3rem 0;}
+.sign-stat-k{color:#2a2a2a;}
+.sign-stat-v{color:#fff;font-weight:bold;}
+#sign-status{font-size:.54rem;letter-spacing:.14em;color:#333;min-height:.9rem;text-align:center;}
+#sign-actions{display:flex;gap:.5rem;margin-top:.2rem;}
+#sign-btn{flex:1;background:#6366f1;border:none;color:#fff;padding:.7rem;font:.52rem 'Courier New';letter-spacing:.18em;cursor:pointer;}
+#sign-btn:hover:not(:disabled){background:#4f46e5;}
+#sign-btn:disabled{opacity:.45;cursor:not-allowed;}
+#sign-skip{flex:1;background:transparent;border:1px solid #1f1f1f;color:#2a2a2a;padding:.7rem;font:.52rem 'Courier New';letter-spacing:.18em;cursor:pointer;}
+#sign-skip:hover{border-color:#444;color:#444;}
+#sign-no-wallet{font-size:.46rem;color:#1a1a1a;letter-spacing:.1em;text-align:center;}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<!-- ── LOBBY ── -->
+<div id="lobby">
+  <div class="logo">SNAKE.IO</div>
+  <div class="tagline">MULTIPLAYER · SURVIVE · GROW · RITUAL</div>
+  <input id="ni" type="text" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false"/>
+  <div class="head-label">HEAD TYPE</div>
+  <div id="head-picker"></div>
+  <button id="pb">PLAY →</button>
+  <div id="wallet-section">
+    <button id="wallet-btn">⬡ CONNECT WALLET (OPTIONAL)</button>
+    <div id="wallet-addr"></div>
+  </div>
+  <div class="hint">
+    MOUSE to steer &nbsp;·&nbsp; SPACE = boost ×1.5 speed (2s, cooldown 5s)<br>
+    head touches other body → you die &nbsp;·&nbsp; wall → die<br>
+    🟡 small (×5=1seg) &nbsp; 🟠 medium (×3=1seg) &nbsp; 🔴 large (×1=1seg)
+  </div>
+</div>
+
+<!-- ── HUD ── -->
+<div id="hud">
+  <div id="score">
+    <div class="sv" id="sv">0</div><div class="sl">FOOD EATEN</div>
+    <div class="sv" id="lv" style="font-size:1.5rem">55</div><div class="sl">LENGTH</div>
+    <div id="boost-wrap">
+      <div class="boost-label">BOOST [SPACE]</div>
+      <div id="boost-bar-bg"><div id="boost-bar"></div></div>
+      <div id="boost-status">READY</div>
+      <div class="boost-hint">2s boost · 5s cooldown</div>
+    </div>
+    <div id="food-legend">
+      <div class="fl-title">FOOD</div>
+      <div class="fl-row"><div class="fl-dot" style="width:8px;height:8px;background:#eab308"></div> Small — ×5 = 1 seg</div>
+      <div class="fl-row"><div class="fl-dot" style="width:14px;height:14px;background:#f97316"></div> Medium — ×3 = 1 seg</div>
+      <div class="fl-row"><div class="fl-dot" style="width:20px;height:20px;background:#ef4444"></div> Large — ×1 = 1 seg</div>
+    </div>
+  </div>
+
+  <!-- Leaderboard with local / onchain tabs -->
+  <div id="lb">
+    <div class="lb-tabs">
+      <button class="lb-tab active" data-mode="local" onclick="switchLB('local')">LOCAL</button>
+      <button class="lb-tab" data-mode="onchain" onclick="switchLB('onchain')">ON-CHAIN ⬡</button>
+    </div>
+    <div id="lbr"></div>
+    <div id="lb-onchain">
+      <div id="lb-empty">Loading...</div>
+    </div>
+    <button id="lb-refresh" style="display:none" onclick="loadOnchainLB()">↻ REFRESH</button>
+  </div>
+
+  <div id="dead">
+    <div class="dt">DEAD</div>
+    <div class="ds" id="ds">RESPAWNING...</div>
+    <div class="dbar"><div class="dfill" id="df" style="width:0%"></div></div>
+  </div>
+
+  <canvas id="mm" width="145" height="145"></canvas>
+  <div id="pc"></div>
+  <div id="wallet-hud">
+    <div id="wallet-dot"></div>
+    <div id="wallet-hud-txt">NO WALLET</div>
+  </div>
+</div>
+
+<!-- ── SIGN MODAL ── -->
+<div id="sign-modal">
+  <div id="sign-box">
+    <div id="sign-title">⬡ RECORD DEATH ONCHAIN</div>
+    <div id="sign-stats"></div>
+    <div id="sign-status"></div>
+    <div id="sign-actions">
+      <button id="sign-btn">SIGN &amp; RECORD</button>
+      <button id="sign-skip">SKIP</button>
+    </div>
+    <div id="sign-no-wallet" style="display:none">Connect wallet in lobby to record scores onchain.</div>
+  </div>
+</div>
+
+<!-- ethers.js v6 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.1/ethers.umd.min.js"></script>
+
+<script>
+// ── Ritual Web3 config ──────────────────────────────────────────────────────
+// TODO: paste contract address here after running: npm run deploy
+const CONTRACT_ADDRESS = '';
+const RITUAL_CHAIN_ID  = 1979;
+const RITUAL_RPC       = 'https://rpc.ritualfoundation.org';
+const CONTRACT_ABI = [
+  'function submitScore(string name, uint256 score, uint256 length, uint256 kills) external',
+  'function getLeaderboard() external view returns (tuple(address player, string name, uint256 score, uint256 length, uint256 kills, uint256 timestamp)[])',
+  'function playerCount() external view returns (uint256)',
+];
+
+let web3Provider  = null;
+let web3Signer    = null;
+let web3Contract  = null;
+let walletAddress = null;
+let pendingDeath  = null;   // {name, score, length, kills}
+let lastAlive     = null;   // detect alive→dead edge
+let myName        = 'Snake';
+let onchainMode   = false;
+
+// ── HEAD SHAPES ──
+const HEAD_TYPES = [
+  { name:'CIRCLE', draw: drawCircle },
+  { name:'DRAGON', draw: drawDragon },
+  { name:'CAT',    draw: drawCat    },
+  { name:'ROBOT',  draw: drawRobot  },
+  { name:'DEVIL',  draw: drawDevil  },
+];
+
+function drawCircle(ctx, x, y, a, color, R) {
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI*2); ctx.fill();
+}
+function drawDragon(ctx, x, y, a, color, R) {
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.ellipse(0,0,R*1.3,R*.85,0,0,Math.PI*2); ctx.fill();
+  const [r,g,b] = hex2rgb(color);
+  ctx.fillStyle=`rgba(${r},${g},${b},.7)`;
+  ctx.beginPath(); ctx.moveTo(-R*.1,-R*.7); ctx.lineTo(R*.35,-R*1.5); ctx.lineTo(R*.6,-R*.7); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-R*.1,R*.7); ctx.lineTo(R*.35,R*1.5); ctx.lineTo(R*.6,R*.7); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawCat(ctx, x, y, a, color, R) {
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+  ctx.fillStyle=color;
+  ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+  const [r,g,b] = hex2rgb(color);
+  ctx.fillStyle=`rgba(${r},${g},${b},.8)`;
+  ctx.beginPath(); ctx.moveTo(-R*.35,-R*.75); ctx.lineTo(0,-R*1.55); ctx.lineTo(R*.35,-R*.75); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-R*.35,R*.75); ctx.lineTo(0,R*1.55); ctx.lineTo(R*.35,R*.75); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawRobot(ctx, x, y, a, color, R) {
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+  ctx.fillStyle=color; ctx.fillRect(-R,-R,R*2,R*2);
+  ctx.strokeStyle=color; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(0,-R); ctx.lineTo(0,-R*1.55); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,-R*1.65,3.5,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawDevil(ctx, x, y, a, color, R) {
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+  ctx.fillStyle=color; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ef4444';
+  ctx.beginPath(); ctx.moveTo(-R*.5,-R*.6); ctx.lineTo(-R*.1,-R*1.6); ctx.lineTo(R*.2,-R*.6); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(R*.2,-R*.6); ctx.lineTo(R*.6,-R*1.6); ctx.lineTo(R*.9,-R*.6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function hex2rgb(hex){ return [parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]; }
+
+function drawEyes(ctx, x, y, a, R) {
+  const cos=Math.cos(a), sin=Math.sin(a), perp=[-sin,cos];
+  const fwd=R*.5, side=R*.38;
+  for (const s of [1,-1]) {
+    const ex=x+cos*fwd+perp[0]*side*s, ey=y+sin*fwd+perp[1]*side*s;
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ex,ey,R*.28,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(ex+cos*R*.08,ey+sin*R*.08,R*.13,0,Math.PI*2); ctx.fill();
+  }
+}
+
+// ── Head picker ──
+let selectedHead = 0;
+document.getElementById('head-picker').innerHTML = '';
+HEAD_TYPES.forEach((ht, i) => {
+  const div = document.createElement('div');
+  div.className = 'hpick'+(i===0?' active':'');
+  div.innerHTML = `<canvas width="38" height="38"></canvas><div class="hn">${ht.name}</div>`;
+  const c = div.querySelector('canvas');
+  const cx2 = c.getContext('2d');
+  cx2.fillStyle='#0f0f0f'; cx2.fillRect(0,0,38,38);
+  ht.draw(cx2,19,19,0,'#6366f1',12); drawEyes(cx2,19,19,0,12);
+  div.addEventListener('click', () => {
+    selectedHead = i;
+    document.querySelectorAll('.hpick').forEach(e=>e.classList.remove('active'));
+    div.classList.add('active');
+  });
+  document.getElementById('head-picker').appendChild(div);
+});
+
+// ── Canvas ──
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const mmCv  = document.getElementById('mm');
+const mmCtx = mmCv.getContext('2d');
+function resize(){ cv.width=window.innerWidth; cv.height=window.innerHeight; }
+resize(); window.addEventListener('resize',resize);
+
+// ── Constants (must match server) ──
+const WW=8000, WH=8000;
+const SPEED_S   = 7.0;
+const R_MIN=14, R_MAX=32, VISUAL_REF=150, INIT_LEN=55;
+const RESPAWN_T=55, COOLDOWN_T=111, BOOST_TICKS=44;
+const FOOD_RADII = [3, 5, 7];
+const FOOD_COLORS = ['#eab308','#f97316','#ef4444'];
+
+function segR(tlen) {
+  const t = Math.min(1,(tlen-INIT_LEN)/(VISUAL_REF-INIT_LEN));
+  return R_MIN + Math.sqrt(t)*(R_MAX-R_MIN);
+}
+
+// ── State ──
+let ws, myId, gameState=null, mouseAngle=0;
+
+// ── Lobby ──
+document.getElementById('pb').addEventListener('click', play);
+document.getElementById('ni').addEventListener('keydown', e=>{ if(e.key==='Enter') play(); });
+function play(){
+  myName = document.getElementById('ni').value.trim() || 'Snake';
+  document.getElementById('lobby').style.display='none';
+  document.getElementById('hud').classList.add('on');
+  connect(myName, selectedHead);
+}
+
+// ── Controls ──
+cv.addEventListener('mousemove', e=>{
+  mouseAngle = Math.atan2(e.clientY-cv.height/2, e.clientX-cv.width/2);
+});
+cv.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  const t=e.touches[0];
+  mouseAngle = Math.atan2(t.clientY-cv.height/2, t.clientX-cv.width/2);
+},{passive:false});
+
+document.addEventListener('keydown', e=>{
+  if (e.code==='Space'){
+    e.preventDefault();
+    ws?.readyState===1 && ws.send(JSON.stringify({t:'boost'}));
+  }
+});
+
+setInterval(()=>{ ws?.readyState===1 && ws.send(JSON.stringify({t:'a',a:mouseAngle})); },33);
+
+// ── Connect ──
+function connect(name, ht){
+  const proto=location.protocol==='https:'?'wss':'ws';
+  const host=location.hostname||'localhost';
+  const port=location.port?`:${location.port}`:'';
+  ws=new WebSocket(`${proto}://${host}${port}`);
+  ws.onopen=()=>ws.send(JSON.stringify({t:'join',n:name,ht}));
+  ws.onmessage=e=>{
+    const d=JSON.parse(e.data);
+    if(d.t==='ok') myId=d.id;
+    if(d.t==='s')  gameState=d;
+  };
+  ws.onclose=()=>setTimeout(()=>connect(name,ht),1500);
+}
+
+// ── RGB cache ──
+const rgbCache={};
+function toRGB(hex){
+  if(rgbCache[hex]) return rgbCache[hex];
+  const [r,g,b]=hex2rgb(hex);
+  return rgbCache[hex]=`${r},${g},${b}`;
+}
+
+// ── Render loop ──
+requestAnimationFrame(function loop(){ requestAnimationFrame(loop); render(); updateHUD(); });
+
+function render(){
+  ctx.fillStyle='#050505';
+  ctx.fillRect(0,0,cv.width,cv.height);
+  if(!gameState) return;
+  const me=gameState.p[myId];
+  if(!me||!me.s.length) return;
+
+  const [hx,hy]=me.s[0];
+  const camX=cv.width/2-hx, camY=cv.height/2-hy;
+  ctx.save();
+  ctx.translate(camX,camY);
+
+  // World border
+  ctx.strokeStyle='#1f1f1f'; ctx.lineWidth=5;
+  ctx.strokeRect(0,0,WW,WH);
+  // Danger glow at edges
+  for(const [x0,y0,w,h,dir] of [
+    [0,0,80,WH,'h'],[WW-80,0,80,WH,'h'],
+    [0,0,WW,80,'v'],[0,WH-80,WW,80,'v'],
+  ]){
+    const g=ctx.createLinearGradient(x0,y0,dir==='h'?x0+(x0===0?80:-80):x0,dir==='v'?y0+(y0===0?80:-80):y0);
+    g.addColorStop(0,'rgba(239,68,68,.15)'); g.addColorStop(1,'transparent');
+    ctx.fillStyle=g; ctx.fillRect(x0,y0,w,h);
+  }
+
+  // Grid
+  ctx.strokeStyle='#0c0c0c'; ctx.lineWidth=1;
+  const G=100;
+  const vx0=-camX-G,vy0=-camY-G,vx1=-camX+cv.width+G,vy1=-camY+cv.height+G;
+  const gx0=Math.floor(Math.max(0,vx0)/G)*G, gy0=Math.floor(Math.max(0,vy0)/G)*G;
+  for(let gx=gx0;gx<Math.min(WW,vx1);gx+=G){ctx.beginPath();ctx.moveTo(gx,Math.max(0,vy0));ctx.lineTo(gx,Math.min(WH,vy1));ctx.stroke();}
+  for(let gy=gy0;gy<Math.min(WH,vy1);gy+=G){ctx.beginPath();ctx.moveTo(Math.max(0,vx0),gy);ctx.lineTo(Math.min(WW,vx1),gy);ctx.stroke();}
+
+  // Food
+  for(const [fx,fy,ci,ftype] of gameState.f){
+    if(fx<vx0||fx>vx1||fy<vy0||fy>vy1) continue;
+    const fr = FOOD_RADII[ftype??0];
+    const fc = FOOD_COLORS[ftype??0];
+    const rgb = toRGB(fc);
+    ctx.fillStyle=`rgba(${rgb},.18)`;
+    ctx.beginPath(); ctx.arc(fx,fy,fr*2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=fc;
+    ctx.beginPath(); ctx.arc(fx,fy,fr,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.45)';
+    ctx.beginPath(); ctx.arc(fx-fr*.3,fy-fr*.3,fr*.35,0,Math.PI*2); ctx.fill();
+  }
+
+  // Snakes
+  for(const [pid,p] of Object.entries(gameState.p)){
+    if(!p.s.length) continue;
+    const [shx,shy]=p.s[0];
+    if(shx<vx0-400||shx>vx1+400||shy<vy0-400||shy>vy1+400) continue;
+
+    ctx.globalAlpha = p.alive?1:0.2;
+    const R = segR(p.tlen||INIT_LEN);
+    const rgb = toRGB(p.c);
+
+    if(p.bo){ ctx.shadowColor=p.c; ctx.shadowBlur=20; }
+
+    const step = Math.max(1, Math.floor(R / SPEED_S));
+    for(let i=p.s.length-1; i>=step; i-=step){
+      const [sx,sy]=p.s[i];
+      if(sx<vx0-R*2||sx>vx1+R*2||sy<vy0-R*2||sy>vy1+R*2) continue;
+      const t=1-i/p.s.length;
+      const alpha=(0.4+t*0.6).toFixed(2);
+      ctx.fillStyle=`rgba(${rgb},${alpha})`;
+      ctx.beginPath(); ctx.arc(sx,sy,R,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=`rgba(255,255,255,${(0.12*t).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx-R*.28,sy-R*.28,R*.38,0,Math.PI*2); ctx.fill();
+    }
+
+    ctx.shadowBlur=0;
+
+    const ht=HEAD_TYPES[p.ht%HEAD_TYPES.length]||HEAD_TYPES[0];
+    ht.draw(ctx,shx,shy,p.a,p.c,R);
+    drawEyes(ctx,shx,shy,p.a,R);
+
+    ctx.globalAlpha=p.alive?.9:.2;
+    ctx.font=`bold 11px 'Courier New'`;
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillStyle='rgba(0,0,0,.8)';
+    ctx.fillText(p.n,shx+1,shy-R-5);
+    ctx.fillStyle=pid===myId?p.c:(p.bot?'#444':'#ccc');
+    ctx.fillText(p.n,shx,shy-R-6);
+
+    ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
+  }
+
+  ctx.restore();
+  renderMinimap();
+}
+
+function renderMinimap(){
+  const mw=mmCv.width, mh=mmCv.height;
+  mmCtx.fillStyle='rgba(5,5,5,.9)'; mmCtx.fillRect(0,0,mw,mh);
+  const sx=mw/WW, sy=mh/WH;
+  mmCtx.strokeStyle='#1a1a1a'; mmCtx.lineWidth=1; mmCtx.strokeRect(.5,.5,mw-1,mh-1);
+  if(gameState?.f){
+    for(const [fx,fy,,ftype] of gameState.f){
+      mmCtx.fillStyle=FOOD_COLORS[ftype??0]+'44';
+      mmCtx.fillRect(fx*sx,fy*sy,1,1);
+    }
+  }
+  if(gameState?.p){
+    for(const [pid,p] of Object.entries(gameState.p)){
+      if(!p.s.length||!p.alive) continue;
+      const [hx,hy]=p.s[0];
+      mmCtx.fillStyle=pid===myId?'#fff':p.c;
+      mmCtx.beginPath(); mmCtx.arc(hx*sx,hy*sy,pid===myId?3.5:2,0,Math.PI*2); mmCtx.fill();
+    }
+    const me=gameState.p[myId];
+    if(me?.s.length){
+      const [hx,hy]=me.s[0];
+      const vw=(cv.width/WW)*mw, vh=(cv.height/WH)*mh;
+      mmCtx.strokeStyle='rgba(255,255,255,.2)'; mmCtx.lineWidth=1;
+      mmCtx.strokeRect(hx*sx-vw/2,hy*sy-vh/2,vw,vh);
+    }
+  }
+}
+
+// ── HUD ──
+function updateHUD(){
+  if(!gameState) return;
+  const me=gameState.p[myId];
+
+  // Detect death transition
+  if(me){
+    const alive = !!me.alive;
+    if(lastAlive === true && alive === false){
+      onPlayerDied(me.sc, me.len, me.kl||0);
+    }
+    lastAlive = alive;
+  }
+
+  // Dead overlay
+  const deadEl=document.getElementById('dead');
+  if(me&&!me.alive){
+    deadEl.classList.add('show');
+    document.getElementById('df').style.width=((RESPAWN_T-me.rt)/RESPAWN_T*100).toFixed(1)+'%';
+    const s=Math.max(0,Math.ceil(me.rt*45/1000));
+    document.getElementById('ds').textContent=s>0?`RESPAWNING IN ${s}s`:'RESPAWNING...';
+  } else {
+    deadEl.classList.remove('show');
+  }
+
+  if(me){
+    document.getElementById('sv').textContent=me.sc;
+    document.getElementById('sv').style.color=me.c;
+    document.getElementById('lv').textContent=me.len;
+    document.getElementById('lv').style.color=me.c;
+
+    const bo=me.bo, bcd=me.bcd||0;
+    const pct=bo?100:bcd>0?(COOLDOWN_T-bcd)/COOLDOWN_T*100:100;
+    document.getElementById('boost-bar').style.width=pct.toFixed(1)+'%';
+    document.getElementById('boost-bar').style.background=bo?'#eab308':bcd>0?'#ef4444':'#6366f1';
+    const bs=document.getElementById('boost-status');
+    if(bo){ bs.textContent='BOOSTING! ×1.5'; bs.style.color='#eab308'; }
+    else if(bcd>0){ bs.textContent=`COOLDOWN ${Math.ceil(bcd*45/1000)}s`; bs.style.color='#ef4444'; }
+    else { bs.textContent='READY'; bs.style.color='#6366f1'; }
+  }
+
+  // Local leaderboard
+  if(!onchainMode){
+    const sorted=Object.entries(gameState.p).sort((a,b)=>b[1].sc-a[1].sc).slice(0,10);
+    document.getElementById('lbr').innerHTML=sorted.map(([id,p],i)=>
+      `<div class="lb-row" style="${id===myId?`color:${p.c}`:p.bot?'opacity:.35':''}">
+        <span class="lb-n">${i+1}. ${esc(p.n)}${!p.alive?' ☠':''}</span>
+        <span class="lb-s">${p.sc}</span>
+      </div>`
+    ).join('');
+  }
+
+  const humans=Object.values(gameState.p).filter(p=>p.alive&&!p.bot).length;
+  const bots=Object.values(gameState.p).filter(p=>p.alive&&p.bot).length;
+  document.getElementById('pc').textContent=`${humans} PLAYER${humans!==1?'S':''} · ${bots} BOTS`;
+}
+
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── LB tab switch ──
+function switchLB(mode){
+  onchainMode = mode === 'onchain';
+  document.getElementById('lbr').style.display        = onchainMode ? 'none'  : 'block';
+  document.getElementById('lb-onchain').style.display = onchainMode ? 'block' : 'none';
+  document.getElementById('lb-refresh').style.display = onchainMode ? 'block' : 'none';
+  document.querySelectorAll('.lb-tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  if(onchainMode) loadOnchainLB();
+}
+
+async function loadOnchainLB(){
+  const el = document.getElementById('lb-onchain');
+  if(!CONTRACT_ADDRESS){
+    el.innerHTML = '<div id="lb-empty">NO CONTRACT SET</div>';
+    return;
+  }
+  el.innerHTML = '<div id="lb-empty">LOADING...</div>';
+  try{
+    const rp = new ethers.JsonRpcProvider(RITUAL_RPC);
+    const rc = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, rp);
+    const entries = await rc.getLeaderboard();
+    if(!entries.length){ el.innerHTML='<div id="lb-empty">NO SCORES YET</div>'; return; }
+    el.innerHTML = entries.slice(0,10).map((e,i)=>{
+      const short = e.player.slice(0,6)+'…'+e.player.slice(-4);
+      const isMe  = walletAddress && e.player.toLowerCase()===walletAddress.toLowerCase();
+      return `<div class="lb-row" style="${isMe?'color:#6366f1':''}">
+        <span class="lb-n" title="${e.player}">${i+1}. ${esc(e.name)} <span style="color:#222;font-size:.45rem">${short}</span></span>
+        <span class="lb-s">${e.score.toString()}</span>
+      </div>`;
+    }).join('');
+  }catch(err){
+    el.innerHTML='<div id="lb-empty">RPC ERROR</div>';
+    console.error(err);
+  }
+}
+
+// Auto-refresh onchain LB every 30s
+setInterval(()=>{ if(onchainMode) loadOnchainLB(); }, 30000);
+
+// ── Wallet ──
+async function connectWallet(){
+  if(!window.ethereum){
+    alert('MetaMask not found.\nInstall MetaMask to record scores onchain.');
+    return;
+  }
+  try{
+    // Add / switch to Ritual Chain
+    await window.ethereum.request({
+      method: 'wallet_addEthereumChain',
+      params:[{
+        chainId: '0x7BB',  // 1979
+        chainName: 'Ritual Chain',
+        nativeCurrency:{ name:'RITUAL', symbol:'RITUAL', decimals:18 },
+        rpcUrls:[ RITUAL_RPC ],
+      }]
+    });
+    web3Provider  = new ethers.BrowserProvider(window.ethereum);
+    await web3Provider.send('eth_requestAccounts',[]);
+    web3Signer    = await web3Provider.getSigner();
+    walletAddress = await web3Signer.getAddress();
+    if(CONTRACT_ADDRESS){
+      web3Contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, web3Signer);
+    }
+    syncWalletUI();
+  }catch(e){
+    console.error('Wallet connect:', e);
+  }
+}
+
+function syncWalletUI(){
+  const btn  = document.getElementById('wallet-btn');
+  const addr = document.getElementById('wallet-addr');
+  const dot  = document.getElementById('wallet-dot');
+  const txt  = document.getElementById('wallet-hud-txt');
+  if(walletAddress){
+    const s = walletAddress.slice(0,6)+'…'+walletAddress.slice(-4);
+    btn.textContent = '⬡ '+s;
+    btn.classList.add('connected');
+    addr.textContent = 'RITUAL CHAIN · '+s;
+    dot.classList.add('on');
+    txt.textContent = s;
+  } else {
+    btn.textContent = '⬡ CONNECT WALLET (OPTIONAL)';
+    btn.classList.remove('connected');
+    addr.textContent = '';
+    dot.classList.remove('on');
+    txt.textContent = 'NO WALLET';
+  }
+}
+
+document.getElementById('wallet-btn').addEventListener('click', connectWallet);
+
+// ── Sign modal ──
+function onPlayerDied(score, length, kills){
+  pendingDeath = { name: myName, score, length, kills };
+  const stats = document.getElementById('sign-stats');
+  stats.innerHTML = `
+    <div class="sign-stat"><span class="sign-stat-k">FOOD EATEN</span><span class="sign-stat-v">${score}</span></div>
+    <div class="sign-stat"><span class="sign-stat-k">LENGTH</span><span class="sign-stat-v">${length}</span></div>
+    <div class="sign-stat"><span class="sign-stat-k">KILLS</span><span class="sign-stat-v">${kills}</span></div>
+  `;
+  document.getElementById('sign-status').textContent = '';
+  document.getElementById('sign-status').style.color = '#333';
+  document.getElementById('sign-btn').disabled = false;
+
+  const noWallet = !walletAddress || !CONTRACT_ADDRESS;
+  document.getElementById('sign-actions').style.display  = noWallet ? 'none' : 'flex';
+  document.getElementById('sign-no-wallet').style.display = noWallet ? 'block' : 'none';
+
+  document.getElementById('sign-modal').classList.add('show');
+}
+
+function hideSignModal(){
+  document.getElementById('sign-modal').classList.remove('show');
+  pendingDeath = null;
+}
+
+async function doSign(){
+  if(!web3Contract || !pendingDeath) return;
+  const btn    = document.getElementById('sign-btn');
+  const status = document.getElementById('sign-status');
+  btn.disabled = true;
+  try{
+    status.textContent = 'SIGNING...';
+    status.style.color = '#6366f1';
+    const tx = await web3Contract.submitScore(
+      pendingDeath.name,
+      BigInt(pendingDeath.score),
+      BigInt(pendingDeath.length),
+      BigInt(pendingDeath.kills)
+    );
+    status.textContent = 'WAITING FOR BLOCK...';
+    await tx.wait();
+    status.textContent = '✓ RECORDED ONCHAIN';
+    status.style.color = '#10b981';
+    if(onchainMode) loadOnchainLB();
+    setTimeout(hideSignModal, 2200);
+  }catch(e){
+    status.textContent = e?.code === 4001 ? 'REJECTED' : 'TX FAILED';
+    status.style.color = '#ef4444';
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('sign-btn').addEventListener('click', doSign);
+document.getElementById('sign-skip').addEventListener('click', hideSignModal);
+</script>
+</body>
+</html>
