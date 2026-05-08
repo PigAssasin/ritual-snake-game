@@ -6,6 +6,8 @@ const fs        = require('fs');
 const path      = require('path');
 const GameRoom  = require('./game/GameRoom');
 const PublicRoomManager = require('./game/PublicRoomManager');
+const { generateDeathChronicle }       = require('./ritual/deathChronicle');
+const { generateTournamentChronicle }  = require('./ritual/tournamentChronicle');
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 const httpServer = http.createServer((req, res) => {
@@ -23,13 +25,24 @@ const httpServer = http.createServer((req, res) => {
 const privateRooms = new Map();
 
 function onElimination(roomId, playerId, stats) {
-  // TODO Sprint 3: trigger Death Chronicle NFT mint
   console.log(`[ELIMINATION] room=${roomId} player=${stats.name} score=${stats.score}`);
+  // Async — find player WS and pass to chronicle generator for notification
+  const room = publicRooms.getRoomById(roomId);
+  const playerWs = room?.wsMap.get(playerId) || null;
+  generateDeathChronicle(stats, playerWs).catch(err =>
+    console.error('[deathChronicle]', err.message)
+  );
 }
 
 function onSessionEnd(roomId, data) {
-  // TODO Sprint 3: trigger Tournament Chronicle for private rooms
   console.log(`[SESSION_END] room=${roomId} winner=${data.winner?.name || 'none'}`);
+  if (data.mode !== 'private') return;
+  // Find the private room instance to broadcast chronicle to connected players
+  const room = privateRooms.get(roomId) || null;
+  generateTournamentChronicle(
+    { roomId, sessionNumber: 1, results: data.results, winner: data.winner },
+    room
+  ).catch(err => console.error('[tournamentChronicle]', err.message));
 }
 
 const publicRooms = new PublicRoomManager({ onElimination, onSessionEnd });
