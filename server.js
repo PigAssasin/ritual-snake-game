@@ -6,8 +6,15 @@ const fs        = require('fs');
 const path      = require('path');
 const GameRoom  = require('./game/GameRoom');
 const PublicRoomManager = require('./game/PublicRoomManager');
-const { generateDeathChronicle }       = require('./ritual/deathChronicle');
-const { generateTournamentChronicle }  = require('./ritual/tournamentChronicle');
+// Ritual AI features — optional, only active when viem + ethers are installed
+let generateDeathChronicle      = async () => null;
+let generateTournamentChronicle = async () => null;
+try {
+  generateDeathChronicle      = require('./ritual/deathChronicle').generateDeathChronicle;
+  generateTournamentChronicle = require('./ritual/tournamentChronicle').generateTournamentChronicle;
+} catch (_) {
+  console.log('  [ritual] viem/ethers not installed — AI features disabled');
+}
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 const httpServer = http.createServer((req, res) => {
