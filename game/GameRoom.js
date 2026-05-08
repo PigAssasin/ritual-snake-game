@@ -85,6 +85,20 @@ class GameRoom {
     this.lobbyActive        = (mode === 'private');
     this.lobbyPlayers       = new Map(); // id → { name, color, headType }
     this.hostId             = null;
+    this._chronicleEvents   = [];
+  }
+
+  _elapsedSec() {
+    if (!this.sessionStartTime) return 0;
+    return Math.floor((Date.now() - this.sessionStartTime) / 1000);
+  }
+
+  _pushChronicle(event) {
+    if (this.mode !== 'private') return;
+    const sec = this._elapsedSec();
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
+    this._chronicleEvents.push({ time: mm + ':' + ss, ...event });
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -98,6 +112,8 @@ class GameRoom {
     this.sessionActive    = true;
     this.sessionStartTime = Date.now();
     this.sessionNumber++;
+    this._chronicleEvents = [];
+    this._pushChronicle({ type: 'session_start', detail: `Session #${this.sessionNumber} · ${Math.round(this.sessionDurationMs / 60000)} min` });
     this._fillFood();
     this._spawnBots();
     this._nextTick = Date.now();
@@ -243,9 +259,17 @@ class GameRoom {
         if (d2(nx, ny, f[0], f[1]) < eatD2) {
           toRemove.add(fi);
           p.growthAcc += FOOD_GROWTH[f[3]];
+          const _prevLen = p.targetLen;
           while (p.growthAcc >= 1) {
             p.targetLen = Math.min(p.targetLen + 1, MAX_LEN);
             p.growthAcc -= 1;
+          }
+          if (!p.isBot && this.mode === 'private') {
+            for (const m of [50, 100, 200, 300]) {
+              if (_prevLen < m && p.targetLen >= m) {
+                this._pushChronicle({ type: 'milestone', name: p.name, length: m });
+              }
+            }
           }
           p.score++;
         }
@@ -308,6 +332,13 @@ class GameRoom {
       isWall: killedBy === 'wall',
     });
 
+    this._pushChronicle({
+      type: killedBy === 'wall' ? 'eliminated' : (this.players[killedBy] && !this.players[killedBy]?.isBot ? 'kill' : 'eliminated'),
+      killer: killerName,
+      victim: p.name,
+      score: p.score,
+    });
+
     this._dropFood(p.segs);
     p.alive   = false;
     p.respawn = RESPAWN_T;
@@ -344,7 +375,12 @@ class GameRoom {
     });
 
     const winner = results[0] || null;
-    this._broadcastAll({ t: 'session_end', results, winner });
+    if (this.mode === 'private' && winner) {
+      this._pushChronicle({ type: 'session_end', detail: `${winner.name} wins · score: ${(winner.score||0).toLocaleString()}` });
+    }
+    const broadcastPayload = { t: 'session_end', results, winner };
+    if (this.mode === 'private') broadcastPayload.chronicleEvents = this._chronicleEvents;
+    this._broadcastAll(broadcastPayload);
 
     if (this.onSessionEnd) this.onSessionEnd(this.id, { results, winner, mode: this.mode });
 
