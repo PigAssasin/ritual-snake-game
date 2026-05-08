@@ -32,6 +32,9 @@ canvas{display:block;}
 #wallet-btn:hover{border-color:#6366f1;color:#6366f1;}
 #wallet-btn.connected{border-color:#10b981;color:#10b981;}
 #wallet-addr{font-size:.44rem;color:#1a1a1a;letter-spacing:.12em;}
+.mode-tab{flex:1;background:#0f0f0f;border:1px solid #1a1a1a;color:#2a2a2a;padding:.55rem;font:.48rem 'Courier New';letter-spacing:.15em;cursor:pointer;transition:all .12s;}
+.mode-tab.active{border-color:#6366f1;color:#6366f1;}
+#pb-public,#pb-create,#pb-join{background:#6366f1;border:none;color:#fff;padding:.75rem;font:.85rem 'Courier New';letter-spacing:.15em;cursor:pointer;width:100%;}
 
 /* ── HUD ── */
 #hud{position:fixed;inset:0;pointer-events:none;display:none;z-index:10;}
@@ -109,18 +112,45 @@ canvas{display:block;}
 <div id="lobby">
   <div class="logo">SNAKE.IO</div>
   <div class="tagline">MULTIPLAYER · SURVIVE · GROW · RITUAL</div>
+
   <input id="ni" type="text" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false"/>
   <div class="head-label">HEAD TYPE</div>
   <div id="head-picker"></div>
-  <button id="pb">PLAY →</button>
-  <div id="wallet-section">
+
+  <div id="mode-tabs" style="display:flex;gap:.4rem;margin-top:1.2rem;width:300px;">
+    <button class="mode-tab active" data-mode="public" onclick="selectMode('public')">PUBLIC ROOM</button>
+    <button class="mode-tab" data-mode="private" onclick="selectMode('private')">PRIVATE ROOM</button>
+  </div>
+
+  <div id="panel-public" style="width:300px;margin-top:.8rem;">
+    <div id="public-rooms-list" style="font-size:.5rem;color:#222;letter-spacing:.12em;margin-bottom:.6rem;">
+      Loading rooms...
+    </div>
+    <button id="pb-public" onclick="playPublic()">JOIN PUBLIC ROOM →</button>
+  </div>
+
+  <div id="panel-private" style="display:none;width:300px;margin-top:.8rem;">
+    <input id="pi-roomid" type="text" placeholder="Room ID (leave blank to create)" maxlength="10"
+           autocomplete="off" style="background:#0f0f0f;border:1px solid #222;color:#fff;padding:.6rem 1rem;width:100%;font:.85rem 'Courier New';outline:none;margin-bottom:.4rem;"/>
+    <input id="pi-pass" type="password" placeholder="Password" maxlength="20"
+           autocomplete="off" style="background:#0f0f0f;border:1px solid #222;color:#fff;padding:.6rem 1rem;width:100%;font:.85rem 'Courier New';outline:none;margin-bottom:.4rem;"/>
+    <div style="display:flex;gap:.4rem;margin-bottom:.4rem;">
+      <button id="pb-create" onclick="playPrivateCreate()" style="flex:1;">CREATE ROOM →</button>
+      <button id="pb-join"   onclick="playPrivateJoin()"   style="flex:1;">JOIN →</button>
+    </div>
+    <button id="pb-judge" onclick="playJudge()"
+            style="width:100%;background:transparent;border:1px solid #1f1f1f;color:#2a2a2a;padding:.55rem;font:.5rem 'Courier New';letter-spacing:.18em;cursor:pointer;">
+      ⊕ JOIN AS JUDGE (spectator)
+    </button>
+  </div>
+
+  <div id="wallet-section" style="margin-top:1rem;display:flex;flex-direction:column;align-items:center;gap:.35rem;">
     <button id="wallet-btn">⬡ CONNECT WALLET (OPTIONAL)</button>
     <div id="wallet-addr"></div>
   </div>
   <div class="hint">
-    MOUSE to steer &nbsp;·&nbsp; SPACE = boost ×1.5 speed (2s, cooldown 5s)<br>
-    head touches other body → you die &nbsp;·&nbsp; wall → die<br>
-    🟡 small (×5=1seg) &nbsp; 🟠 medium (×3=1seg) &nbsp; 🔴 large (×1=1seg)
+    MOUSE to steer &nbsp;·&nbsp; SPACE = boost ×1.5 (2s)<br>
+    PUBLIC: die = eliminated forever &nbsp;·&nbsp; PRIVATE: unlimited respawn
   </div>
 </div>
 
@@ -164,6 +194,7 @@ canvas{display:block;}
 
   <canvas id="mm" width="145" height="145"></canvas>
   <div id="pc"></div>
+  <div id="session-timer" style="position:absolute;top:1rem;left:50%;transform:translateX(-50%);font-size:.55rem;letter-spacing:.2em;color:#222;"></div>
   <div id="wallet-hud">
     <div id="wallet-dot"></div>
     <div id="wallet-hud-txt">NO WALLET</div>
@@ -182,6 +213,14 @@ canvas{display:block;}
     </div>
     <div id="sign-no-wallet" style="display:none">Connect wallet in lobby to record scores onchain.</div>
   </div>
+</div>
+
+<!-- Chronicle modal (Death Chronicle from Ritual LLM) -->
+<div id="chronicle-modal" style="display:none;position:fixed;bottom:2rem;right:2rem;z-index:80;background:#080808;border:1px solid #6366f1;padding:1.2rem 1.4rem;max-width:320px;">
+  <div style="font-size:.5rem;letter-spacing:.25em;color:#6366f1;margin-bottom:.6rem;">⬡ YOUR CHRONICLE IS READY</div>
+  <div id="chronicle-text" style="font-size:.62rem;color:#888;line-height:1.7;letter-spacing:.05em;font-style:italic;"></div>
+  <button onclick="document.getElementById('chronicle-modal').style.display='none'"
+          style="margin-top:.8rem;background:transparent;border:1px solid #222;color:#333;padding:.4rem 1rem;font:.45rem 'Courier New';letter-spacing:.15em;cursor:pointer;">CLOSE</button>
 </div>
 
 <!-- ethers.js v6 -->
@@ -299,7 +338,9 @@ resize(); window.addEventListener('resize',resize);
 
 // ── Constants (must match server) ──
 const WW=8000, WH=8000;
-const SPEED_S   = 7.0;
+const SPEED_S      = 5.6;
+const BOOST_SPEED  = SPEED_S * 1.5;
+const TICK_MS      = 33;   // server tick interval — used for extrapolation
 const R_MIN=14, R_MAX=32, VISUAL_REF=150, INIT_LEN=55;
 const RESPAWN_T=55, COOLDOWN_T=111, BOOST_TICKS=44;
 const FOOD_RADII = [3, 5, 7];
@@ -311,16 +352,65 @@ function segR(tlen) {
 }
 
 // ── State ──
-let ws, myId, gameState=null, mouseAngle=0;
+let ws, myId, gameState=null, mouseAngle=0, lastStateTime=0;
+const entityFade = {}; // pid → {alpha, prevAlive}
 
-// ── Lobby ──
-document.getElementById('pb').addEventListener('click', play);
-document.getElementById('ni').addEventListener('keydown', e=>{ if(e.key==='Enter') play(); });
-function play(){
+// ── Lobby mode ──
+let currentMode = 'public';
+let isJudgeMode = false;
+let gameOver    = false;
+
+function selectMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.getElementById('panel-public').style.display  = mode === 'public'  ? 'block' : 'none';
+  document.getElementById('panel-private').style.display = mode === 'private' ? 'block' : 'none';
+}
+
+function playPublic() {
   myName = document.getElementById('ni').value.trim() || 'Snake';
-  document.getElementById('lobby').style.display='none';
+  hideLobby();
+  connect();
+  ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'join_public', n: myName, ht: selectedHead })), { once: true });
+}
+
+function playPrivateCreate() {
+  myName = document.getElementById('ni').value.trim() || 'Snake';
+  const pass = document.getElementById('pi-pass').value.trim();
+  hideLobby();
+  connect();
+  ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'create_private', n: myName, ht: selectedHead, pass })), { once: true });
+}
+
+function playPrivateJoin() {
+  myName = document.getElementById('ni').value.trim() || 'Snake';
+  const roomId = document.getElementById('pi-roomid').value.trim().toUpperCase();
+  const pass   = document.getElementById('pi-pass').value.trim();
+  if (!roomId) { alert('Enter a Room ID to join'); return; }
+  hideLobby();
+  connect();
+  ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'join_private', n: myName, ht: selectedHead, roomId, pass })), { once: true });
+}
+
+function playJudge() {
+  myName = document.getElementById('ni').value.trim() || 'Judge';
+  const roomId = document.getElementById('pi-roomid').value.trim().toUpperCase();
+  const pass   = document.getElementById('pi-pass').value.trim();
+  if (!roomId) { alert('Enter a Room ID'); return; }
+  isJudgeMode = true;
+  hideLobby();
+  connect();
+  ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'join_private', n: myName, ht: selectedHead, roomId, pass, role: 'judge' })), { once: true });
+}
+
+function hideLobby() {
+  document.getElementById('lobby').style.display = 'none';
   document.getElementById('hud').classList.add('on');
-  connect(myName, selectedHead);
+}
+
+function showLobby() {
+  document.getElementById('lobby').style.display = 'flex';
+  document.getElementById('hud').classList.remove('on');
 }
 
 // ── Controls ──
@@ -343,19 +433,92 @@ document.addEventListener('keydown', e=>{
 setInterval(()=>{ ws?.readyState===1 && ws.send(JSON.stringify({t:'a',a:mouseAngle})); },33);
 
 // ── Connect ──
-function connect(name, ht){
-  const proto=location.protocol==='https:'?'wss':'ws';
-  const host=location.hostname||'localhost';
-  const port=location.port?`:${location.port}`:'';
-  ws=new WebSocket(`${proto}://${host}${port}`);
-  ws.onopen=()=>ws.send(JSON.stringify({t:'join',n:name,ht}));
-  ws.onmessage=e=>{
-    const d=JSON.parse(e.data);
-    if(d.t==='ok') myId=d.id;
-    if(d.t==='s')  gameState=d;
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const host  = location.hostname || 'localhost';
+  const port  = location.port ? `:${location.port}` : '';
+  ws = new WebSocket(`${proto}://${host}${port}`);
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.t === 'ok')            { myId = d.id; }
+    if (d.t === 'room_created')  { showRoomCreated(d.roomId, d.pass); }
+    if (d.t === 's')             { gameState = d; lastStateTime = Date.now(); }
+    if (d.t === 'eliminated')    { onEliminated(d.stats); }
+    if (d.t === 'session_end')   { onSessionEnd(d); }
+    if (d.t === 'rooms')         { renderPublicRoomList(d.public); }
+    if (d.t === 'error')         { alert(d.msg); showLobby(); }
+    if (d.t === 'chronicle_ready') {
+      document.getElementById('chronicle-text').textContent = d.epitaph;
+      document.getElementById('chronicle-modal').style.display = 'block';
+    }
   };
-  ws.onclose=()=>setTimeout(()=>connect(name,ht),1500);
+  ws.onclose = () => { if (!gameOver) setTimeout(connect, 1500); };
 }
+
+function showRoomCreated(roomId, pass) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:1rem;left:50%;transform:translateX(-50%);background:#0f0f0f;border:1px solid #6366f1;padding:.8rem 1.4rem;z-index:50;font-size:.6rem;letter-spacing:.15em;text-align:center;';
+  el.innerHTML = `ROOM CREATED<br><span style="color:#6366f1;font-size:.9rem">${roomId}</span><br><span style="color:#333">pass: ${pass || 'none'}</span>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+}
+
+function onEliminated(stats) {
+  gameOver = true;
+  document.getElementById('dead').classList.add('show');
+  document.getElementById('ds').textContent = `ELIMINATED — SCORE: ${stats.score}`;
+  setTimeout(() => onPlayerDied(stats.score, stats.length, stats.kills), 2000);
+}
+
+function onSessionEnd(d) {
+  const winner = d.winner;
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;';
+  const top3 = d.results.slice(0, 3).map((r, i) =>
+    `<div style="font-size:.7rem;letter-spacing:.15em;color:${i===0?'#eab308':'#666'}">${i+1}. ${esc(r.name)} — ${r.score} pts</div>`
+  ).join('');
+  el.innerHTML = `
+    <div style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:#6366f1">SESSION OVER</div>
+    <div style="font-size:.6rem;color:#333;letter-spacing:.2em;margin-bottom:.5rem">WINNER: ${winner?.name || 'NONE'}</div>
+    ${top3}
+    <button onclick="location.reload()" style="margin-top:1rem;background:#6366f1;border:none;color:#fff;padding:.7rem 2rem;font:.6rem 'Courier New';letter-spacing:.2em;cursor:pointer;">PLAY AGAIN</button>
+  `;
+  document.body.appendChild(el);
+}
+
+// ── Public room list for lobby ──
+function loadPublicRooms() {
+  if (ws?.readyState === 1) {
+    ws.send(JSON.stringify({ t: 'get_rooms' }));
+    return;
+  }
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const host  = location.hostname || 'localhost';
+  const port  = location.port ? `:${location.port}` : '';
+  const tmpWs = new WebSocket(`${proto}://${host}${port}`);
+  tmpWs.onopen = () => tmpWs.send(JSON.stringify({ t: 'get_rooms' }));
+  tmpWs.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.t === 'rooms') { renderPublicRoomList(d.public); tmpWs.close(); }
+  };
+}
+
+function renderPublicRoomList(rooms) {
+  const el = document.getElementById('public-rooms-list');
+  if (!el) return;
+  el.innerHTML = rooms.map(r => {
+    const m = Math.floor(r.timeLeft / 60000);
+    const s = Math.floor((r.timeLeft % 60000) / 1000);
+    const full = r.players >= r.maxPlayers;
+    return `<div style="display:flex;justify-content:space-between;padding:.2rem 0;border-bottom:1px solid #0d0d0d;${full?'opacity:.4':''}">
+      <span>${r.id.replace('pub_','ROOM ')}</span>
+      <span style="color:#333">${r.players}/${r.maxPlayers} · ${m}:${String(s).padStart(2,'0')}</span>
+    </div>`;
+  }).join('');
+}
+
+setTimeout(loadPublicRooms, 500);
+setInterval(loadPublicRooms, 10000);
 
 // ── RGB cache ──
 const rgbCache={};
@@ -376,7 +539,11 @@ function render(){
   if(!me||!me.s.length) return;
 
   const [hx,hy]=me.s[0];
-  const camX=cv.width/2-hx, camY=cv.height/2-hy;
+  const _idt = Math.min(Date.now()-lastStateTime, TICK_MS);
+  const _spd = me.bo ? BOOST_SPEED : SPEED_S;
+  // Own snake: extrapolate with mouseAngle for instant feel
+  const camX = cv.width/2  - (hx + Math.cos(mouseAngle)*_spd*(_idt/TICK_MS));
+  const camY = cv.height/2 - (hy + Math.sin(mouseAngle)*_spd*(_idt/TICK_MS));
   ctx.save();
   ctx.translate(camX,camY);
 
@@ -421,7 +588,20 @@ function render(){
     const [shx,shy]=p.s[0];
     if(shx<vx0-400||shx>vx1+400||shy<vy0-400||shy>vy1+400) continue;
 
-    ctx.globalAlpha = p.alive?1:0.2;
+    // Own snake: extrapolate using mouseAngle (instant response despite ping)
+    // Others: extrapolate using server angle (stable, no snap)
+    const _ea = (pid===myId) ? mouseAngle : p.a;
+    const _es = p.bo ? BOOST_SPEED : SPEED_S;
+    const ehx = shx + Math.cos(_ea)*_es*(_idt/TICK_MS);
+    const ehy = shy + Math.sin(_ea)*_es*(_idt/TICK_MS);
+
+    // Fade in on spawn/respawn — eliminates sudden pop when bot appears
+    let ef = entityFade[pid];
+    if (!ef) ef = entityFade[pid] = {alpha: 0, prevAlive: false};
+    if (p.alive && !ef.prevAlive) ef.alpha = 0; // reset on dead→alive transition
+    ef.prevAlive = p.alive;
+    ef.alpha = Math.min(1, ef.alpha + 0.06); // ~17 frames ≈ 280ms fade
+    ctx.globalAlpha = (p.alive ? 1 : 0.2) * ef.alpha;
     const R = segR(p.tlen||INIT_LEN);
     const rgb = toRGB(p.c);
 
@@ -442,21 +622,31 @@ function render(){
     ctx.shadowBlur=0;
 
     const ht=HEAD_TYPES[p.ht%HEAD_TYPES.length]||HEAD_TYPES[0];
-    ht.draw(ctx,shx,shy,p.a,p.c,R);
-    drawEyes(ctx,shx,shy,p.a,R);
+    ht.draw(ctx,ehx,ehy,_ea,p.c,R);
+    drawEyes(ctx,ehx,ehy,_ea,R);
 
     ctx.globalAlpha=p.alive?.9:.2;
     ctx.font=`bold 11px 'Courier New'`;
     ctx.textAlign='center'; ctx.textBaseline='bottom';
     ctx.fillStyle='rgba(0,0,0,.8)';
-    ctx.fillText(p.n,shx+1,shy-R-5);
+    ctx.fillText(p.n,ehx+1,ehy-R-5);
     ctx.fillStyle=pid===myId?p.c:(p.bot?'#444':'#ccc');
-    ctx.fillText(p.n,shx,shy-R-6);
+    ctx.fillText(p.n,ehx,ehy-R-6);
 
     ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
   }
 
   ctx.restore();
+
+  // Spotlight vignette — dark at screen edges, transparent at player center
+  const scx = cv.width / 2, scy = cv.height / 2;
+  const vrad = Math.max(cv.width, cv.height) * 0.72;
+  const vig = ctx.createRadialGradient(scx, scy, vrad * 0.28, scx, scy, vrad);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.72)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
   renderMinimap();
 }
 
@@ -471,10 +661,13 @@ function renderMinimap(){
       mmCtx.fillRect(fx*sx,fy*sy,1,1);
     }
   }
-  if(gameState?.p){
-    for(const [pid,p] of Object.entries(gameState.p)){
-      if(!p.s.length||!p.alive) continue;
-      const [hx,hy]=p.s[0];
+  const mmSrc = gameState?.lb || gameState?.p;
+  if(mmSrc && gameState?.p){
+    for(const [pid,p] of Object.entries(mmSrc)){
+      if(!p.alive) continue;
+      const pp = gameState.p[pid];
+      if(!pp?.s.length) continue;
+      const [hx,hy]=pp.s[0];
       mmCtx.fillStyle=pid===myId?'#fff':p.c;
       mmCtx.beginPath(); mmCtx.arc(hx*sx,hy*sy,pid===myId?3.5:2,0,Math.PI*2); mmCtx.fill();
     }
@@ -529,20 +722,36 @@ function updateHUD(){
     else { bs.textContent='READY'; bs.style.color='#6366f1'; }
   }
 
-  // Local leaderboard
+  // Local leaderboard — uses lb (all players, not viewport-culled)
   if(!onchainMode){
-    const sorted=Object.entries(gameState.p).sort((a,b)=>b[1].sc-a[1].sc).slice(0,10);
-    document.getElementById('lbr').innerHTML=sorted.map(([id,p],i)=>
-      `<div class="lb-row" style="${id===myId?`color:${p.c}`:p.bot?'opacity:.35':''}">
-        <span class="lb-n">${i+1}. ${esc(p.n)}${!p.alive?' ☠':''}</span>
-        <span class="lb-s">${p.sc}</span>
-      </div>`
-    ).join('');
+    const src = gameState.lb || gameState.p;
+    const sorted = Object.entries(src).sort((a,b)=>b[1].sc-a[1].sc).slice(0,10);
+    const total  = Object.keys(src).length;
+    const alive  = Object.values(src).filter(p=>p.alive).length;
+    document.getElementById('lbr').innerHTML =
+      `<div style="font-size:.42rem;letter-spacing:.15em;color:#1a1a1a;margin-bottom:.35rem;">
+         PLAYERS <span style="color:#4ade80">${alive}</span>/<span style="color:#333">${total}</span>
+       </div>` +
+      sorted.map(([id,p],i)=>
+        `<div class="lb-row" style="${id===myId?`color:${p.c}`:p.bot?'opacity:.35':''}">
+          <span class="lb-n">${i+1}. ${esc(p.n)}${!p.alive?' ☠':''}</span>
+          <span class="lb-s">${p.sc}</span>
+        </div>`
+      ).join('');
   }
 
-  const humans=Object.values(gameState.p).filter(p=>p.alive&&!p.bot).length;
-  const bots=Object.values(gameState.p).filter(p=>p.alive&&p.bot).length;
+  const pSrc = gameState.lb || gameState.p;
+  const humans=Object.values(pSrc).filter(p=>p.alive&&!p.bot).length;
+  const bots=Object.values(pSrc).filter(p=>p.alive&&p.bot).length;
   document.getElementById('pc').textContent=`${humans} PLAYER${humans!==1?'S':''} · ${bots} BOTS`;
+
+  const timeLeft = gameState.timeLeft;
+  if (timeLeft !== undefined) {
+    const m = Math.floor(timeLeft / 60000);
+    const s = Math.floor((timeLeft % 60000) / 1000);
+    document.getElementById('session-timer').textContent =
+      `SESSION ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
 }
 
 function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
