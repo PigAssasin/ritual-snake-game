@@ -298,6 +298,44 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .nft-secondary:hover{border-color:var(--g5);color:var(--g3)}
 .nft-lobby-btn{background:transparent;border:none;color:var(--g5);font-family:var(--fb);font-size:12px;cursor:pointer;padding:6px 12px;border-radius:6px;transition:color .15s}
 .nft-lobby-btn:hover{color:var(--g3)}
+
+/* ── CHRONICLE ────────────────────────────────────────── */
+#screen-chronicle{background:#0a0a0a;align-items:center;justify-content:center}
+.chr-wrap{padding:20px;width:100%;max-width:760px}
+.chr-term{background:#0d1117;border:1px solid #30363d;border-radius:10px;font-family:var(--fm);font-size:12px;overflow:hidden}
+.chr-term-bar{background:#161b22;padding:10px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #30363d}
+.chr-dots{display:flex;gap:5px}
+.chr-dots span{width:10px;height:10px;border-radius:50%;background:#30363d}
+.chr-dots span:nth-child(1){background:#ff5f57}
+.chr-dots span:nth-child(2){background:#febc2e}
+.chr-dots span:nth-child(3){background:#28c840}
+.chr-term-title{flex:1;text-align:center;color:#7d8590;font-size:11px}
+.chr-skip{background:transparent;border:1px solid #30363d;color:#7d8590;font-family:var(--fm);font-size:10px;padding:3px 9px;border-radius:4px;cursor:pointer}
+.chr-skip:hover{color:#e6edf3;border-color:#7d8590}
+.chr-body{padding:18px 20px;max-height:55vh;overflow-y:auto;line-height:1.8}
+.chr-hdr{color:#7d8590;margin-bottom:8px}
+.chr-hdr .chr-grn{color:#3fb950}
+.chr-tbl-hdr{color:#7d8590;border-bottom:1px solid #30363d;padding-bottom:6px;margin-bottom:4px;display:grid;grid-template-columns:55px 120px 1fr;gap:8px}
+.chr-row{display:grid;grid-template-columns:55px 120px 1fr;gap:8px;padding:2px 0}
+.chr-t{color:#7d8590}
+.chr-ev-session_start{color:#58a6ff}
+.chr-ev-kill{color:#f85149}
+.chr-ev-eliminated{color:#e3b341}
+.chr-ev-milestone{color:#3fb950}
+.chr-ev-session_end{color:#3fb950}
+.chr-star{color:var(--gold)}
+.chr-footer{border-top:1px solid #30363d;padding:14px 20px;display:flex;flex-direction:column;gap:10px}
+.chr-commit-line{color:#7d8590;display:flex;gap:8px;align-items:center;font-size:11px}
+.chr-prompt{color:#3fb950}
+.chr-cmd{color:#e6edf3}
+.chr-actions{display:flex;align-items:center;gap:14px}
+.chr-btn{padding:10px 22px;border-radius:8px;border:1px solid;font-family:var(--fb);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+.chr-primary{border-color:var(--green);color:var(--green);background:transparent}
+.chr-primary:hover{background:rgba(25,209,132,.08)}
+.chr-secondary{border-color:var(--g7);color:var(--g4);background:transparent}
+.chr-secondary:hover{border-color:var(--g5);color:var(--g3)}
+.chr-auto{color:#7d8590;font-family:var(--fm);font-size:11px}
+.chr-nav{display:flex;gap:10px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -414,6 +452,33 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
   </div>
   <div class="timer-fl"><span class="timer-ic">◌</span><span class="timer-v" id="hud-timer">—:——</span></div>
   <div class="controls-hint">Mouse to steer · Space / Click to boost</div>
+</div>
+
+<!-- ═══ CHRONICLE ════════════════════════════════════════ -->
+<div class="screen" id="screen-chronicle">
+  <div class="chr-wrap">
+    <div class="chr-term">
+      <div class="chr-term-bar">
+        <span class="chr-dots"><span></span><span></span><span></span></span>
+        <span class="chr-term-title" id="chr-title">ritual-snake — match chronicle</span>
+        <button class="chr-skip" id="chr-skip-btn" onclick="skipChronicle()">Skip</button>
+      </div>
+      <div class="chr-body" id="chr-body"></div>
+      <div class="chr-footer">
+        <div class="chr-commit-line">
+          <span class="chr-prompt">$</span>
+          <span class="chr-cmd">ritual chronicle commit --room <span id="chr-room-id">?</span> --onchain</span>
+        </div>
+        <div class="chr-actions">
+          <button class="chr-btn chr-primary" id="chr-commit-btn" onclick="commitChronicle()">✓ Chronicle Committed</button>
+          <div class="chr-auto" id="chr-auto">Auto-committing in <span id="chr-countdown">0:30</span>...</div>
+        </div>
+        <div class="chr-nav" id="chr-nav" style="display:none">
+          <button class="chr-btn chr-secondary" onclick="backToLobby()">↩ Back to Lobby</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ NFT CARD ═════════════════════════════════════════ -->
@@ -800,6 +865,15 @@ function handleMsg(d) {
       stopQueueCountdown();
       showScreen('lobby');
       break;
+    case 'chronicle_committed': {
+      const btn = document.getElementById('chr-commit-btn');
+      if (btn) { btn.textContent = '✓ Chronicle Committed'; btn.disabled = true; }
+      const autoEl = document.getElementById('chr-auto');
+      if (autoEl) autoEl.style.display = 'none';
+      const navEl = document.getElementById('chr-nav');
+      if (navEl) navEl.style.display = '';
+      break;
+    }
     case 'error':
       showToast(d.msg);
       break;
@@ -983,6 +1057,99 @@ function shareOnX() {
   document.getElementById('nft-lobby-btn').style.display = '';
 }
 
+let _chronicleAutoTimer = null;
+let _chronicleEvents    = [];
+let _chronicleResults   = [];
+
+function showChronicle(events, results, roomId) {
+  _chronicleEvents  = events  || [];
+  _chronicleResults = results || [];
+
+  document.getElementById('chr-title').textContent =
+    'ritual-snake — match chronicle · ' + (roomId || 'room');
+  document.getElementById('chr-room-id').textContent = roomId || '?';
+
+  const evTypeLabel = {
+    session_start: 'session_start',
+    kill:          'kill',
+    eliminated:    'eliminated',
+    milestone:     'milestone',
+    session_end:   'session_end',
+  };
+
+  const body = document.getElementById('chr-body');
+  body.innerHTML =
+    '<div class="chr-hdr"># — Match Event Log ——————————————</div>' +
+    '<div class="chr-hdr"># Room <span class="chr-grn">' + (roomId || '?') + '</span> · Private session</div>' +
+    '<br>' +
+    '<div class="chr-tbl-hdr"><span>TIME</span><span>EVENT</span><span>DETAIL</span></div>' +
+    _chronicleEvents.map(ev => {
+      const cls = 'chr-ev-' + (ev.type || 'session_start');
+      let evLabel = evTypeLabel[ev.type] || ev.type;
+      let detail  = '';
+      if (ev.type === 'session_start') {
+        detail = ev.detail || '';
+      } else if (ev.type === 'kill') {
+        evLabel = 'kill <span class="chr-star">★</span>';
+        detail  = (ev.killer || '?') + ' killed ' + (ev.victim || '?') + ' · score: ' + (ev.score || 0).toLocaleString();
+      } else if (ev.type === 'eliminated') {
+        detail = (ev.victim || '?') + ' killed by ' + (ev.killer || '?') + ' · score: ' + (ev.score || 0).toLocaleString();
+      } else if (ev.type === 'milestone') {
+        detail = (ev.name || '?') + ' reached length ' + (ev.length || 0);
+      } else if (ev.type === 'session_end') {
+        detail = ev.detail || '';
+      }
+      return '<div class="chr-row"><span class="chr-t">' + ev.time + '</span><span class="' + cls + '">' + evLabel + '</span><span>' + detail + '</span></div>';
+    }).join('');
+
+  const commitBtn = document.getElementById('chr-commit-btn');
+  commitBtn.textContent = '✓ Chronicle Committed';
+  commitBtn.disabled = false;
+  document.getElementById('chr-nav').style.display = 'none';
+  document.getElementById('chr-auto').style.display = '';
+
+  _chronicleCountdown = 30;
+  startChronicleCountdown();
+
+  showScreen('chronicle');
+}
+
+let _chronicleCountdown = 30;
+
+function startChronicleCountdown() {
+  if (_chronicleAutoTimer) clearInterval(_chronicleAutoTimer);
+  _chronicleAutoTimer = setInterval(() => {
+    _chronicleCountdown--;
+    const el = document.getElementById('chr-countdown');
+    if (el) el.textContent = '0:' + String(Math.max(0, _chronicleCountdown)).padStart(2, '0');
+    if (_chronicleCountdown <= 0) {
+      clearInterval(_chronicleAutoTimer);
+      _doCommitChronicle();
+    }
+  }, 1000);
+}
+
+function _doCommitChronicle() {
+  send({ t: 'chronicle_commit', events: _chronicleEvents, results: _chronicleResults });
+  const btn = document.getElementById('chr-commit-btn');
+  if (btn) { btn.textContent = '✓ Chronicle Committed'; btn.disabled = true; }
+  const autoEl = document.getElementById('chr-auto');
+  if (autoEl) autoEl.style.display = 'none';
+  const navEl = document.getElementById('chr-nav');
+  if (navEl) navEl.style.display = '';
+}
+
+function commitChronicle() {
+  if (_chronicleAutoTimer) clearInterval(_chronicleAutoTimer);
+  _doCommitChronicle();
+}
+
+function skipChronicle() {
+  if (!confirm('Are you sure? Chronicle will be lost.')) return;
+  if (_chronicleAutoTimer) clearInterval(_chronicleAutoTimer);
+  backToLobby();
+}
+
 function stopQueueCountdown() {
   if (_qTimer) { clearTimeout(_qTimer); _qTimer = null; }
 }
@@ -1045,6 +1212,8 @@ function equipSkin(id) {
 
 function backToLobby() {
   stopRenderLoop();
+  stopQueueCountdown();
+  if (_chronicleAutoTimer) clearInterval(_chronicleAutoTimer);
   if (ws) { ws.close(); ws = null; }
   gameState = null;
   myId      = null;
