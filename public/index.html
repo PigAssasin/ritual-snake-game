@@ -234,6 +234,17 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 ::-webkit-scrollbar{width:3px;height:3px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--g7);border-radius:2px}
+
+/* ── QUEUE ────────────────────────────────────────────── */
+#screen-queue{background:var(--bg0);align-items:center;justify-content:center}
+.q-term{background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:28px 36px;width:460px;font-family:var(--fm);font-size:13px}
+.q-header{color:#7d8590;margin-bottom:20px;font-size:12px}
+.q-cmd{color:var(--gold)}
+.q-line{color:#e6edf3;line-height:2}
+.q-line.dim{color:#7d8590;font-size:11px}
+.q-hl{color:var(--green);font-weight:600}
+.q-cancel{margin-top:32px;background:transparent;border:1px solid #30363d;color:#7d8590;font-family:var(--fm);font-size:12px;padding:7px 18px;border-radius:6px;cursor:pointer;transition:all .15s;display:block}
+.q-cancel:hover{border-color:#7d8590;color:#e6edf3}
 </style>
 </head>
 <body>
@@ -350,6 +361,23 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
   </div>
   <div class="timer-fl"><span class="timer-ic">◌</span><span class="timer-v" id="hud-timer">—:——</span></div>
   <div class="controls-hint">Mouse to steer · Space / Click to boost</div>
+</div>
+
+<!-- ═══ QUEUE ════════════════════════════════════════════ -->
+<div class="screen" id="screen-queue">
+  <div class="q-term">
+    <div class="q-header">ritual-snake ~ <span class="q-cmd">queue --waiting</span></div>
+    <div class="q-body">
+      <div class="q-line dim"># Waiting for an open session...</div>
+      <div class="q-line" style="margin-top:24px">
+        You are <span id="q-pos" class="q-hl">#1</span> in queue
+      </div>
+      <div class="q-line">
+        Next session opens in&nbsp;<span id="q-timer" class="q-hl">—</span>
+      </div>
+    </div>
+    <button class="q-cancel" onclick="leaveQueue()">[ Cancel ]</button>
+  </div>
 </div>
 
 <!-- ═══ ELIMINATED ════════════════════════════════════════ -->
@@ -609,6 +637,19 @@ function handleMsg(d) {
       setTimeout(() => backToLobby(), 2500);
       break;
 
+    case 'queued':
+      document.getElementById('q-pos').textContent = '#' + d.position;
+      startQueueCountdown(d.nextRoomIn);
+      showScreen('queue');
+      break;
+    case 'queue_update':
+      document.getElementById('q-pos').textContent = '#' + d.position;
+      startQueueCountdown(d.nextRoomIn);
+      break;
+    case 'queue_left':
+      stopQueueCountdown();
+      showScreen('lobby');
+      break;
     case 'error':
       showToast(d.msg);
       break;
@@ -617,7 +658,7 @@ function handleMsg(d) {
 
 // ── Lobby actions ─────────────────────────────────────
 function joinPublic() {
-  connect(() => send({ t: 'join_public', n: getName() }));
+  connect(() => send({ t: 'join_public', n: getName(), skin: selectedSkin || 'default' }));
 }
 
 function selDur(d, el) {
@@ -646,6 +687,27 @@ function hostStart() {
 function leaveRoom() {
   if (ws) { ws.close(); ws = null; }
   showScreen('lobby');
+}
+
+let _qTimer = null;
+function startQueueCountdown(ms) {
+  stopQueueCountdown();
+  let remaining = Math.max(0, ms);
+  function tick() {
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000) / 1000);
+    const el = document.getElementById('q-timer');
+    if (el) el.textContent = m + ':' + String(s).padStart(2, '0');
+    if (remaining > 0) { remaining -= 1000; _qTimer = setTimeout(tick, 1000); }
+  }
+  tick();
+}
+function stopQueueCountdown() {
+  if (_qTimer) { clearTimeout(_qTimer); _qTimer = null; }
+}
+function leaveQueue() {
+  stopQueueCountdown();
+  send({ t: 'leave_queue' });
 }
 
 function backToLobby() {

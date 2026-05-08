@@ -33,7 +33,6 @@ const privateRooms = new Map();
 
 function onElimination(roomId, playerId, stats) {
   console.log(`[ELIMINATION] room=${roomId} player=${stats.name} score=${stats.score}`);
-  // Async — find player WS and pass to chronicle generator for notification
   const room = publicRooms.getRoomById(roomId);
   const playerWs = room?.wsMap.get(playerId) || null;
   generateDeathChronicle(stats, playerWs).catch(err =>
@@ -44,7 +43,6 @@ function onElimination(roomId, playerId, stats) {
 function onSessionEnd(roomId, data) {
   console.log(`[SESSION_END] room=${roomId} winner=${data.winner?.name || 'none'}`);
   if (data.mode !== 'private') return;
-  // Find the private room instance to broadcast chronicle to connected players
   const room = privateRooms.get(roomId) || null;
   generateTournamentChronicle(
     { roomId, sessionNumber: 1, results: data.results, winner: data.winner },
@@ -58,9 +56,12 @@ const publicRooms = new PublicRoomManager({ onElimination, onSessionEnd });
 const wss = new WebSocket.Server({ server: httpServer });
 
 wss.on('connection', ws => {
-  let assignedRoomId = null;
-  let assignedPlayerId = null;
-  let isJudge = false;
+  const state = { roomId: null, playerId: null, isJudge: false };
+
+  function getRoom() {
+    if (!state.roomId) return null;
+    return privateRooms.get(state.roomId) || publicRooms.getRoomById(state.roomId);
+  }
 
   ws.on('message', raw => {
     try {
@@ -68,15 +69,27 @@ wss.on('connection', ws => {
 
       // ── JOIN PUBLIC ROOM ──
       if (d.t === 'join_public') {
-        const room = publicRooms.findOpenRoom();
+        const name = (d.n || 'Snake').slice(0, 16);
+        const skin = d.skin || 'default';
+        const room = publicRooms.findBestRoom();
         if (!room) {
-          ws.send(JSON.stringify({ t: 'error', msg: 'All public rooms are full. Try again soon.' }));
+          publicRooms.addToQueue(ws, name, skin, (assignedRoom, pid) => {
+            state.roomId   = assignedRoom.id;
+            state.playerId = pid;
+          });
           return;
         }
-        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), d.ht || 0);
+        const pid = room.addPlayer(ws, name, 0, skin);
         if (!pid) { ws.send(JSON.stringify({ t: 'error', msg: 'Room full' })); return; }
-        assignedRoomId   = room.id;
-        assignedPlayerId = pid;
+        state.roomId   = room.id;
+        state.playerId = pid;
+        return;
+      }
+
+      // ── LEAVE QUEUE ──
+      if (d.t === 'leave_queue') {
+        publicRooms.removeFromQueue(ws);
+        ws.send(JSON.stringify({ t: 'queue_left' }));
         return;
       }
 
@@ -84,6 +97,7 @@ wss.on('connection', ws => {
       if (d.t === 'create_private') {
         const roomId = 'prv_' + Math.random().toString(36).slice(2, 7).toUpperCase();
         const pass   = (d.pass || '').slice(0, 20);
+        const skin   = d.skin || 'default';
         const room   = new GameRoom(roomId, 'private', {
           password:   pass,
           botCount:   0,
@@ -93,10 +107,9 @@ wss.on('connection', ws => {
           onSessionEnd,
         });
         privateRooms.set(roomId, room);
-        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), d.ht || 0);
-        assignedRoomId   = roomId;
-        assignedPlayerId = pid;
-        ws.send(JSON.stringify({ t: 'room_created', roomId, pass }));
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), 0, skin);
+        state.roomId   = roomId;
+        state.playerId = pid;
         return;
       }
 
@@ -108,47 +121,66 @@ wss.on('connection', ws => {
           ws.send(JSON.stringify({ t: 'error', msg: 'Wrong password' })); return;
         }
         if (room.isFull()) { ws.send(JSON.stringify({ t: 'error', msg: 'Room is full' })); return; }
-
         if (d.role === 'judge') {
           if (room.judgeId) { ws.send(JSON.stringify({ t: 'error', msg: 'Judge slot taken' })); return; }
           room.setJudge(ws, (d.n || 'Judge').slice(0, 16));
-          assignedRoomId = d.roomId;
-          isJudge = true;
+          state.roomId  = d.roomId;
+          state.isJudge = true;
           return;
         }
-
-        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), d.ht || 0);
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), 0, d.skin || 'default');
         if (!pid) { ws.send(JSON.stringify({ t: 'error', msg: 'Room full' })); return; }
-        assignedRoomId   = d.roomId;
-        assignedPlayerId = pid;
-        if (!room.sessionActive) room.startSession();
+        state.roomId   = d.roomId;
+        state.playerId = pid;
         return;
       }
 
-      // ── GET ROOM LIST (for lobby) ──
+      // ── GET ROOM LIST ──
       if (d.t === 'get_rooms') {
         ws.send(JSON.stringify({ t: 'rooms', public: publicRooms.getRoomList() }));
         return;
       }
 
+      // ── HOST START ──
+      if (d.t === 'host_start' && state.roomId) {
+        const room = privateRooms.get(state.roomId);
+        if (room) room.hostStartGame(state.playerId, d.durationMin);
+        return;
+      }
+
+      // ── CHRONICLE COMMIT ──
+      if (d.t === 'chronicle_commit' && state.roomId) {
+        const room = getRoom();
+        generateTournamentChronicle(
+          { roomId: state.roomId, events: d.events || [], results: d.results || [] },
+          room
+        ).then(result => {
+          ws.send(JSON.stringify({ t: 'chronicle_committed', txHash: result?.txHash || null }));
+        }).catch(() => {
+          ws.send(JSON.stringify({ t: 'chronicle_committed', txHash: null }));
+        });
+        return;
+      }
+
       // ── IN-GAME MESSAGES ──
-      if (assignedRoomId && assignedPlayerId) {
-        const room = privateRooms.get(assignedRoomId) || publicRooms.getRoomById(assignedRoomId);
-        if (room) room.handleMessage(assignedPlayerId, d);
+      if (state.roomId && state.playerId) {
+        const room = getRoom();
+        if (room) room.handleMessage(state.playerId, d);
       }
 
     } catch (e) { console.error('WS parse error:', e.message); }
   });
 
   ws.on('close', () => {
-    if (!assignedRoomId) return;
-    const room = privateRooms.get(assignedRoomId) || publicRooms.getRoomById(assignedRoomId);
+    publicRooms.removeFromQueue(ws);
+    if (!state.roomId) return;
+    const room = getRoom();
     if (!room) return;
-    if (isJudge) { room.judgeWs = null; room.judgeId = null; return; }
-    if (assignedPlayerId) room.removePlayer(assignedPlayerId);
-    if (privateRooms.has(assignedRoomId) && room.humanCount() === 0) {
+    if (state.isJudge) { room.judgeWs = null; room.judgeId = null; return; }
+    if (state.playerId) room.removePlayer(state.playerId);
+    if (privateRooms.has(state.roomId) && room.humanCount() === 0) {
       room.stopSession();
-      privateRooms.delete(assignedRoomId);
+      privateRooms.delete(state.roomId);
     }
   });
 });
