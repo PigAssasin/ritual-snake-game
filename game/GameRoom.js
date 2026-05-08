@@ -8,18 +8,18 @@ const SPEED        = 5.6;
 const BOOST_SPEED  = SPEED * 1.5;
 const BOOST_TICKS  = 44;
 const COOLDOWN_T   = 111;
-const TURN         = 0.17;
+const TURN         = 0.136;
 const FOOD_N       = 1400;
 const INIT_LEN     = 55;
 const MAX_LEN      = 450;
 const RESPAWN_T    = 55;
 const VIEW_W       = 1600;
 const VIEW_H       = 1100;
-const SESSION_MS   = 10 * 60 * 1000;
+const SESSION_MS   = 7 * 60 * 1000;
 
-const FOOD_GROWTH = [0.2, 1/3, 1.0];
+const FOOD_GROWTH = [0.5, 0.83, 2.5];
 const FOOD_RADIUS = [3, 5, 7];
-const R_MIN = 14, R_MAX = 32, VISUAL_REF = 150;
+const R_MIN = 20, R_MAX = 44, VISUAL_REF = 150;
 
 const COLORS = [
   '#4ade80','#f97316','#3b82f6','#ec4899',
@@ -80,12 +80,17 @@ class GameRoom {
     this.sessionActive    = false;
     this.sessionStartTime = null;
     this.sessionNumber    = 0;
+
+    this.sessionDurationMs  = SESSION_MS;
+    this.lobbyActive        = (mode === 'private');
+    this.lobbyPlayers       = new Map(); // id → { name, color, headType }
+    this.hostId             = null;
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
   playerCount() { return Object.keys(this.players).length; }
-  humanCount()  { return Object.values(this.players).filter(p => !p.isBot).length; }
+  humanCount()  { return Object.values(this.players).filter(p => !p.isBot).length + this.lobbyPlayers.size; }
   isFull()      { return this.humanCount() >= this.maxPlayers; }
 
   startSession() {
@@ -97,8 +102,8 @@ class GameRoom {
     this._spawnBots();
     this._nextTick = Date.now();
     this._scheduleTick();
-    this._sessionTimer = setTimeout(() => this._endSession(), SESSION_MS);
-    this._broadcastAll({ t: 'session_start', sessionNum: this.sessionNumber, duration: SESSION_MS });
+    this._sessionTimer = setTimeout(() => this._endSession(), this.sessionDurationMs);
+    this._broadcastAll({ t: 'session_start', sessionNum: this.sessionNumber, duration: this.sessionDurationMs });
   }
 
   stopSession() {
@@ -111,8 +116,31 @@ class GameRoom {
     if (this.isFull()) return null;
     const id = String(this._nextPlayerId++);
     this.wsMap.set(id, ws);
+
+    if (this.lobbyActive) {
+      const color = COLORS[this._colIdx++ % COLORS.length];
+      this.lobbyPlayers.set(id, { name, color, headType });
+      if (!this.hostId) this.hostId = id;
+      ws.send(JSON.stringify({
+        t: 'lobby_state', id,
+        roomId: this.id, mode: this.mode, pass: this.password || '',
+        isHost: id === this.hostId,
+        players: this._getLobbyPlayerList(),
+      }));
+      this._broadcastLobbyUpdate();
+      return id;
+    }
+
     this.players[id] = this._mkSnake(name, COLORS[this._colIdx++ % COLORS.length], false, headType);
     ws.send(JSON.stringify({ t: 'ok', id, roomId: this.id, mode: this.mode }));
+    // 3s countdown for public rooms
+    let sec = 3;
+    const cd = () => {
+      this.wsMap.get(id)?.send?.(JSON.stringify({ t: 'countdown', sec }));
+      sec--;
+      if (sec > 0) setTimeout(cd, 1000);
+    };
+    cd();
     if (!this.sessionActive) this.startSession();
     return id;
   }
@@ -126,6 +154,13 @@ class GameRoom {
   removePlayer(id) {
     delete this.players[id];
     this.wsMap.delete(id);
+    if (this.lobbyPlayers.has(id)) {
+      this.lobbyPlayers.delete(id);
+      if (this.hostId === id) {
+        this.hostId = this.lobbyPlayers.keys().next().value || null;
+      }
+      this._broadcastLobbyUpdate();
+    }
     if (this.humanCount() === 0 && this.mode === 'private') this.stopSession();
   }
 
@@ -141,8 +176,8 @@ class GameRoom {
   }
 
   timeRemaining() {
-    if (!this.sessionActive || !this.sessionStartTime) return SESSION_MS;
-    return Math.max(0, SESSION_MS - (Date.now() - this.sessionStartTime));
+    if (!this.sessionActive || !this.sessionStartTime) return this.sessionDurationMs;
+    return Math.max(0, this.sessionDurationMs - (Date.now() - this.sessionStartTime));
   }
 
   // ── Internal ────────────────────────────────────────────────────────────────
@@ -447,6 +482,45 @@ class GameRoom {
         Math.round(Math.max(10, Math.min(H - 10, fy + rnd(22) - 11))),
         Math.floor(rnd(COLORS.length)), 1,
       ]);
+    }
+  }
+
+  hostStartGame(requesterId, durationMin) {
+    if (requesterId !== this.hostId) return;
+    this.lobbyActive = false;
+    this.sessionDurationMs = Math.max(3, Math.min(15, durationMin || 7)) * 60 * 1000;
+
+    // Create snakes for all lobby players
+    for (const [id, lp] of this.lobbyPlayers) {
+      this.players[id] = this._mkSnake(lp.name, lp.color, false, lp.headType);
+      const ws = this.wsMap.get(id);
+      if (ws?.readyState === 1) {
+        ws.send(JSON.stringify({ t: 'ok', id, roomId: this.id, mode: this.mode }));
+      }
+    }
+    this.lobbyPlayers.clear();
+
+    // 3s countdown then start
+    let sec = 3;
+    const cd = () => {
+      this._broadcastAll({ t: 'countdown', sec });
+      sec--;
+      if (sec > 0) setTimeout(cd, 1000);
+      else setTimeout(() => this.startSession(), 1000);
+    };
+    cd();
+  }
+
+  _getLobbyPlayerList() {
+    return [...this.lobbyPlayers.entries()].map(([id, p]) => ({
+      id, name: p.name, color: p.color, isHost: id === this.hostId,
+    }));
+  }
+
+  _broadcastLobbyUpdate() {
+    const data = JSON.stringify({ t: 'lobby_update', players: this._getLobbyPlayerList() });
+    for (const ws of this.wsMap.values()) {
+      if (ws.readyState === 1) ws.send(data);
     }
   }
 }
