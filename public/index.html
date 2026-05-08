@@ -539,6 +539,20 @@ function handleMsg(d) {
       startRenderLoop();
       break;
 
+    case 'kill_event': {
+      const isMyKill = myId && gameState?.p?.[myId] &&
+        d.killer === gameState.p[myId].n;
+      const text = isMyKill
+        ? `★ You eliminated ${d.victim}`
+        : d.isWall
+          ? `${d.victim} hit the wall`
+          : `${d.victim} eliminated by ${d.killer}`;
+      const color = isMyKill ? 'var(--pink)' : 'rgba(210,210,210,0.85)';
+      eventFeed.push({ text, color, ts: Date.now() });
+      if (eventFeed.length > 8) eventFeed.shift();
+      break;
+    }
+
     case 'countdown':
       break;
 
@@ -766,6 +780,33 @@ function render() {
   for (const [pid, p] of entries) {
     if (!p.alive || !p.s || !p.s.length) continue;
     drawSnake(p, pid === myId, camX, camY, W, H);
+  }
+
+  // Event feed overlay
+  const _now = Date.now();
+  eventFeed = eventFeed.filter(e => _now - e.ts < 5000);
+  if (eventFeed.length > 0) {
+    ctx.font = '11px "JetBrains Mono", monospace';
+    const lineH = 20;
+    const padX = 12, padY = 6;
+    const startY = H - 16 - eventFeed.length * lineH;
+    eventFeed.forEach((ev, i) => {
+      const age = (_now - ev.ts) / 5000;
+      const alpha = Math.min(1, (1 - age) * 3);
+      ctx.globalAlpha = alpha;
+      const tw = ctx.measureText(ev.text).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(14, startY + i * lineH - padY, tw + padX * 2, lineH, 4);
+      } else {
+        ctx.rect(14, startY + i * lineH - padY, tw + padX * 2, lineH);
+      }
+      ctx.fill();
+      ctx.fillStyle = ev.color;
+      ctx.fillText(ev.text, 14 + padX, startY + i * lineH + 4);
+    });
+    ctx.globalAlpha = 1;
   }
 }
 

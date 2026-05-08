@@ -289,15 +289,24 @@ class GameRoom {
   }
 
   _eliminatePlayer(id, p, killedBy) {
+    const killerName = typeof killedBy === 'string'
+      ? killedBy
+      : (this.players[killedBy]?.name || 'unknown');
     const stats = {
       playerId: id,
       name:     p.name,
       score:    p.score,
       kills:    p.kills,
       length:   p.segs.length,
-      killedBy: typeof killedBy === 'string' ? killedBy :
-                (this.players[killedBy]?.name || 'unknown'),
+      killedBy: killerName,
     };
+
+    this._broadcastAll({
+      t: 'kill_event',
+      victim: p.name,
+      killer: killerName,
+      isWall: killedBy === 'wall',
+    });
 
     this._dropFood(p.segs);
     p.alive   = false;
