@@ -112,7 +112,7 @@ class GameRoom {
     clearTimeout(this._tickTimer);
   }
 
-  addPlayer(ws, name, headType) {
+  addPlayer(ws, name, headType, skin = 'default') {
     if (this.isFull()) return null;
     const id = String(this._nextPlayerId++);
     this.wsMap.set(id, ws);
@@ -131,7 +131,7 @@ class GameRoom {
       return id;
     }
 
-    this.players[id] = this._mkSnake(name, COLORS[this._colIdx++ % COLORS.length], false, headType);
+    this.players[id] = this._mkSnake(name, COLORS[this._colIdx++ % COLORS.length], false, headType, skin);
     ws.send(JSON.stringify({ t: 'ok', id, roomId: this.id, mode: this.mode }));
     // 3s countdown for public rooms
     let sec = 3;
@@ -409,7 +409,7 @@ class GameRoom {
       if (thinned[thinned.length - 1] !== segs[segs.length - 1]) thinned.push(segs[segs.length - 1]);
       segs = thinned;
     }
-    return { s: segs, a: p.angle, c: p.color, n: p.name, ht: p.headType,
+    return { s: segs, a: p.angle, c: p.color, n: p.name, ht: p.headType, sk: p.skin,
              alive: p.alive, rt: p.respawn, sc: p.score, kl: p.kills,
              len: p.segs.length, tlen: p.targetLen, bo: p.boostActive, bcd: p.boostCooldown, bot: p.isBot };
   }
@@ -422,7 +422,7 @@ class GameRoom {
     if (this.judgeWs?.readyState === 1) this.judgeWs.send(data);
   }
 
-  _mkSnake(name, color, isBot = false, headType = 0) {
+  _mkSnake(name, color, isBot = false, headType = 0, skin = 'default') {
     const x = 500 + rnd(W - 1000);
     const y = 500 + rnd(H - 1000);
     const a = rnd(Math.PI * 2);
@@ -430,7 +430,7 @@ class GameRoom {
     for (let i = 0; i < INIT_LEN; i++) {
       segs.push([Math.round(x - Math.cos(a)*i*SPEED), Math.round(y - Math.sin(a)*i*SPEED)]);
     }
-    return { name, color, isBot, headType, segs, angle: a, targetAngle: a,
+    return { name, color, isBot, headType, skin, segs, angle: a, targetAngle: a,
              targetLen: INIT_LEN, growthAcc: 0, score: 0, kills: 0, deaths: 0, maxLen: INIT_LEN,
              alive: true, respawn: 0, boostActive: false, boostTimer: 0, boostCooldown: 0,
              _lastHead: null, _botTick: 0, _botTarget: null };
@@ -440,7 +440,7 @@ class GameRoom {
     for (let i = 0; i < this.botCount; i++) {
       const id = `bot_${this.id}_${i}`;
       this.players[id] = this._mkSnake(BOT_NAMES[i % BOT_NAMES.length],
-        COLORS[this._colIdx++ % COLORS.length], true, Math.floor(rnd(5)));
+        COLORS[this._colIdx++ % COLORS.length], true, Math.floor(rnd(5)), 'default');
     }
   }
 

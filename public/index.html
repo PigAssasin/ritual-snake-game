@@ -245,6 +245,21 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .q-hl{color:var(--green);font-weight:600}
 .q-cancel{margin-top:32px;background:transparent;border:1px solid #30363d;color:#7d8590;font-family:var(--fm);font-size:12px;padding:7px 18px;border-radius:6px;cursor:pointer;transition:all .15s;display:block}
 .q-cancel:hover{border-color:#7d8590;color:#e6edf3}
+
+/* ── SKIN MARKET ──────────────────────────────────────── */
+.skm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:center;justify-content:center}
+.skm-panel{background:var(--bg1);border:1px solid var(--g7);border-radius:16px;padding:28px;width:min(720px,95vw);max-height:90vh;overflow-y:auto}
+.skm-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.skm-title{font-family:var(--fd);font-size:18px;color:#F3F4F6}
+.skm-close{background:transparent;border:1px solid var(--g7);color:var(--g5);padding:5px 10px;border-radius:6px;cursor:pointer;font-size:13px}
+.skm-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.skm-card{border:1px solid var(--g7);border-radius:10px;padding:10px;cursor:pointer;transition:all .15s;text-align:center;background:var(--bg2)}
+.skm-card:hover{border-color:var(--g5);transform:translateY(-2px)}
+.skm-card.active{border-color:var(--green);background:rgba(25,209,132,.06)}
+.skm-card canvas{display:block;margin:0 auto 6px;border-radius:6px}
+.skm-card-name{font-size:11px;color:var(--g4);font-family:var(--fm)}
+.skm-card.active .skm-card-name{color:var(--green)}
+.skm-equip-badge{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);margin-top:3px}
 </style>
 </head>
 <body>
@@ -258,7 +273,7 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
       <div id="ritual-badge" class="ritual-badge">
         <span class="ritual-dot"></span>Ritual · <span id="ritual-status-text">Checking</span>
       </div>
-      <button class="mkt-nav-btn" onclick="showToast('Skin Market — coming soon')">◐ Skin Market</button>
+      <button class="mkt-nav-btn" onclick="openSkinMarket()">◆ Skins</button>
       <div class="w-wrap">
         <button class="wbtn" id="wbtn" onclick="toggleWallet()">
           <span id="wbtn-text">Connect Wallet</span>
@@ -422,6 +437,17 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
   </div>
 </div>
 
+<!-- ═══ SKIN MARKET ══════════════════════════════════════ -->
+<div id="skin-market-modal" class="skm-overlay" style="display:none">
+  <div class="skm-panel">
+    <div class="skm-header">
+      <span class="skm-title">Skin Market</span>
+      <button class="skm-close" onclick="closeSkinMarket()">✕</button>
+    </div>
+    <div class="skm-grid" id="skm-grid"></div>
+  </div>
+</div>
+
 <!-- ═══ JOIN MODAL ════════════════════════════════════════ -->
 <div id="join-modal">
   <div class="join-card">
@@ -475,6 +501,19 @@ let boostSentAt   = 0;
 let pingMs        = 0;
 let pingSentAt    = 0;
 let eventFeed = []; // [{text, color, ts}]
+let selectedSkin = 'default';
+
+function loadSkin() {
+  if (walletAddr) {
+    selectedSkin = localStorage.getItem('skin_' + walletAddr) || 'default';
+  }
+}
+function saveSkin(id) {
+  selectedSkin = id;
+  if (walletAddr) {
+    localStorage.setItem('skin_' + walletAddr, id);
+  }
+}
 
 const canvas = document.getElementById('cvs');
 const ctx    = canvas.getContext('2d');
@@ -539,6 +578,7 @@ async function connectWallet() {
   try {
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
     walletAddr = accounts[0];
+    loadSkin();
     const short = walletAddr.slice(0, 6) + '...' + walletAddr.slice(-4);
     document.getElementById('wbtn-text').textContent = short;
     document.getElementById('wchev').style.display = '';
@@ -669,7 +709,7 @@ function selDur(d, el) {
 
 function createPrivate() {
   const pass = document.getElementById('prv-pass').value.trim();
-  connect(() => send({ t: 'create_private', n: getName(), pass }));
+  connect(() => send({ t: 'create_private', n: getName(), pass, skin: selectedSkin || 'default' }));
 }
 
 function joinPrivate() {
@@ -677,7 +717,7 @@ function joinPrivate() {
   const pass   = document.getElementById('join-room-pass').value.trim();
   if (!roomId) { showToast('Enter a room ID'); return; }
   hideJoinModal();
-  connect(() => send({ t: 'join_private', roomId, pass, n: getName() }));
+  connect(() => send({ t: 'join_private', roomId, pass, n: getName(), skin: selectedSkin || 'default' }));
 }
 
 function hostStart() {
@@ -708,6 +748,58 @@ function stopQueueCountdown() {
 function leaveQueue() {
   stopQueueCountdown();
   send({ t: 'leave_queue' });
+}
+
+function openSkinMarket() {
+  const modal = document.getElementById('skin-market-modal');
+  if (modal) { modal.style.display = 'flex'; renderSkinMarket(); }
+}
+function closeSkinMarket() {
+  const modal = document.getElementById('skin-market-modal');
+  if (modal) modal.style.display = 'none';
+}
+function renderSkinMarket() {
+  const grid = document.getElementById('skm-grid');
+  if (!grid || !window.SKINS) return;
+  grid.innerHTML = window.SKINS.map(sk => `
+    <div class="skm-card ${sk.id === selectedSkin ? 'active' : ''}"
+         onclick="equipSkin('${sk.id}')" id="skm-card-${sk.id}">
+      <canvas id="skm-cv-${sk.id}" width="110" height="72"></canvas>
+      <div class="skm-card-name">${sk.name}</div>
+      ${sk.id === selectedSkin ? '<div class="skm-equip-badge">Equipped</div>' : ''}
+    </div>`).join('');
+  window.SKINS.forEach(sk => drawSkinPreview(sk));
+}
+function drawSkinPreview(sk) {
+  const cv = document.getElementById('skm-cv-' + sk.id);
+  if (!cv) return;
+  const c = cv.getContext('2d');
+  const cW = cv.width, cH = cv.height;
+  c.fillStyle = '#0d1117'; c.fillRect(0, 0, cW, cH);
+  const col = sk.color || '#19D184';
+  const pr = 9;
+  const pts = [];
+  for (let i = 0; i < 18; i++) {
+    const t = i / 17;
+    const x = cW * 0.15 + t * cW * 0.7;
+    const y = cH / 2 + Math.sin(t * Math.PI * 2) * cH * 0.28;
+    pts.push([x, y]);
+  }
+  c.beginPath(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.lineWidth = pr * 2; c.strokeStyle = col;
+  c.moveTo(pts[0][0], pts[0][1]);
+  pts.forEach(([x, y]) => c.lineTo(x, y));
+  c.stroke();
+  c.lineWidth = pr * 0.6; c.strokeStyle = 'rgba(255,255,255,0.07)'; c.stroke();
+  for (let i = 2; i < pts.length; i += 3) sk.drawBodyMark(c, pts[i][0], pts[i][1], pr * 0.38);
+  const [hx, hy] = pts[0];
+  c.beginPath(); c.arc(hx, hy, pr, 0, Math.PI * 2);
+  c.fillStyle = col; c.fill();
+  sk.drawHead(c, hx, hy, pr, 0);
+}
+function equipSkin(id) {
+  saveSkin(id);
+  renderSkinMarket();
 }
 
 function backToLobby() {
@@ -908,6 +1000,8 @@ function drawSnake(p, isMe, camX, camY, W, H) {
   const segs = p.s;
   const r    = segR(p.tlen || INIT_LEN);
   const col  = p.c || '#19D184';
+  const skin = (window.SKINS_MAP && p.sk && window.SKINS_MAP[p.sk]) || window.SKINS_MAP?.default || null;
+  const bodyColor = (skin && skin.color) ? skin.color : col;
 
   if (segs.length > 1) {
     // Body
@@ -915,7 +1009,7 @@ function drawSnake(p, isMe, camX, camY, W, H) {
     ctx.lineCap     = 'round';
     ctx.lineJoin    = 'round';
     ctx.lineWidth   = r * 2;
-    ctx.strokeStyle = col;
+    ctx.strokeStyle = bodyColor;
     ctx.moveTo(segs[0][0] - camX, segs[0][1] - camY);
     for (let i = 1; i < segs.length; i++) {
       ctx.lineTo(segs[i][0] - camX, segs[i][1] - camY);
@@ -946,7 +1040,7 @@ function drawSnake(p, isMe, camX, camY, W, H) {
   // Head
   ctx.beginPath();
   ctx.arc(sx, sy, r, 0, Math.PI*2);
-  ctx.fillStyle = col;
+  ctx.fillStyle = bodyColor;
   ctx.fill();
 
   // Eyes
@@ -963,6 +1057,18 @@ function drawSnake(p, isMe, camX, camY, W, H) {
     ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fill();
     ctx.beginPath(); ctx.arc(ex - eyeR*0.3, ey - eyeR*0.3, pupR, 0, Math.PI*2);
     ctx.fillStyle = '#fff'; ctx.fill();
+  }
+
+  // Skin decorations
+  if (skin) {
+    skin.drawHead(ctx, sx, sy, r, angle);
+    if (segs.length > 2) {
+      for (let i = 2; i < segs.length; i += 3) {
+        const bx = segs[i][0] - camX, by = segs[i][1] - camY;
+        if (bx < -20 || bx > W + 20 || by < -20 || by > H + 20) continue;
+        skin.drawBodyMark(ctx, bx, by, r * 0.38);
+      }
+    }
   }
 
   // Name tag
@@ -1082,5 +1188,6 @@ resizeCanvas();
 checkRitualStatus();
 setInterval(checkRitualStatus, 30_000);
 </script>
+<script src="/skins.js"></script>
 </body>
 </html>
