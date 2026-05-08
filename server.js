@@ -5,8 +5,8 @@ const path = require('path');
 
 // ── Game config ──
 const W = 8000, H = 8000;
-const TICK        = 45;
-const SPEED       = 7.0;
+const TICK        = 33;  // 30Hz — was 22Hz, halves perceived jitter
+const SPEED       = 5.6;
 const BOOST_SPEED = SPEED * 1.5;
 const BOOST_TICKS = 44;
 const COOLDOWN_T  = 111;
@@ -15,19 +15,15 @@ const FOOD_N      = 1400;
 const INIT_LEN    = 55;
 const MAX_LEN     = 450;
 const RESPAWN_T   = 55;
-const BOT_COUNT   = 5;
+const BOT_COUNT   = 10;
 
 const FOOD_GROWTH = [0.2, 1/3, 1.0];
 const FOOD_RADIUS = [3, 5, 7];
 const R_MIN = 14, R_MAX = 32, VISUAL_REF = 150;
 
 // ── Perf config ──
-// Viewport half-size + buffer sent to each client (world units).
-// A 1920×1080 screen = 1920×1080 world units at 1:1 scale.
-// Adding ~600 unit buffer so snakes pop in smoothly before entering frame.
-const VIEW_W  = 1600; // half-width
-const VIEW_H  = 1100; // half-height
-const SEG_STEP = 2;   // send every Nth segment for non-self players
+const VIEW_W = 1600; // viewport half-width (world units)
+const VIEW_H = 1100; // viewport half-height
 
 const COLORS = [
   '#4ade80','#f97316','#3b82f6','#ec4899',
@@ -77,19 +73,20 @@ function segR(tlen) {
 }
 
 // ── Payload helpers ──
-// Send every SEG_STEP-th segment for non-self players to cut bandwidth.
-// Always include head (index 0) and tail for visual continuity.
-function thinSegs(segs) {
-  if (segs.length <= 4) return segs;
-  const out = [segs[0]];
-  for (let i = SEG_STEP; i < segs.length - 1; i += SEG_STEP) out.push(segs[i]);
-  out.push(segs[segs.length - 1]);
-  return out;
-}
-
-function playerPayload(p, isSelf) {
+function playerPayload(p, thin = true) {
+  let segs = p.segs;
+  if (thin && segs.length > 1) {
+    const R = segR(p.targetLen);
+    const step = Math.max(2, Math.floor(R / SPEED));
+    const thinned = [segs[0]];
+    for (let i = step; i < segs.length; i += step) thinned.push(segs[i]);
+    if (thinned[thinned.length - 1] !== segs[segs.length - 1]) {
+      thinned.push(segs[segs.length - 1]);
+    }
+    segs = thinned;
+  }
   return {
-    s:     isSelf ? p.segs : thinSegs(p.segs),
+    s:     segs,
     a:     p.angle,
     c:     p.color,
     n:     p.name,
@@ -113,7 +110,7 @@ function mkSnake(name, color, isBot=false, headType=0) {
   const a = rnd(Math.PI * 2);
   const segs = [];
   for (let i = 0; i < INIT_LEN; i++) {
-    segs.push([x - Math.cos(a)*i*SPEED, y - Math.sin(a)*i*SPEED]);
+    segs.push([Math.round(x - Math.cos(a)*i*SPEED), Math.round(y - Math.sin(a)*i*SPEED)]);
   }
   return {
     name, color, isBot, headType,
@@ -226,7 +223,7 @@ function tick() {
       continue;
     }
 
-    p.segs.unshift([nx, ny]);
+    p.segs.unshift([Math.round(nx), Math.round(ny)]);
 
     const myR = segR(p.targetLen);
     for (let i = food.length-1; i >= 0; i--) {
@@ -273,15 +270,18 @@ function tick() {
 
   fillFood();
 
+  // ── Leaderboard (all players, no segs) — built once per tick ──
+  const lb = {};
+  for (const [pid, p] of entries) {
+    lb[pid] = { n: p.name, sc: p.score, kl: p.kills, alive: p.alive, bot: p.isBot, tlen: p.targetLen, c: p.color };
+  }
+
   // ── Per-client broadcast with viewport culling ──
-  // Each client only receives entities within their visible area + buffer.
-  // This cuts payload from ~150KB to ~5-10KB for typical player density.
   for (const [cid, cws] of wsMap) {
     if (cws.readyState !== 1) continue;
     const me = players[cid];
     if (!me) continue;
 
-    // Viewport center: use head if alive, last known head if dead
     const center = (me.alive && me.segs.length)
       ? me.segs[0]
       : (me._lastHead || [W/2, H/2]);
@@ -289,31 +289,32 @@ function tick() {
 
     const visP = {};
     for (const [pid, p] of entries) {
-      if (pid === cid) {
-        // Always send self (needed for HUD: score, respawn timer, boost)
-        visP[pid] = playerPayload(p, true);
-        continue;
-      }
-      // Skip dead players — they're invisible to others anyway
+      if (pid === cid) { visP[pid] = playerPayload(p); continue; }
       if (!p.segs.length) continue;
-      // Viewport check (rectangular, fast)
       const [phx, phy] = p.segs[0];
       if (Math.abs(phx - cx) > VIEW_W || Math.abs(phy - cy) > VIEW_H) continue;
-      visP[pid] = playerPayload(p, false);
+      visP[pid] = playerPayload(p);
     }
 
-    // Only food in viewport
     const visF = food.filter(([fx, fy]) =>
       Math.abs(fx - cx) <= VIEW_W && Math.abs(fy - cy) <= VIEW_H
     );
 
-    cws.send(JSON.stringify({ t: 's', p: visP, f: visF }));
+    cws.send(JSON.stringify({ t: 's', p: visP, f: visF, lb }));
   }
 }
 
 fillFood();
 initBots();
-setInterval(tick, TICK);
+
+// Self-correcting game loop — tracks absolute time so late ticks
+// don't accumulate drift. Keeps tick rate stable under load.
+let _nextTick = Date.now();
+(function loop() {
+  tick();
+  _nextTick += TICK;
+  setTimeout(loop, Math.max(0, _nextTick - Date.now()));
+})();
 
 wss.on('connection', ws => {
   const id = String(nextId++);
