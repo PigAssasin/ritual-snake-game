@@ -1,345 +1,135 @@
+'use strict';
+
 const WebSocket = require('ws');
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const http      = require('http');
+const fs        = require('fs');
+const path      = require('path');
+const GameRoom  = require('./game/GameRoom');
+const PublicRoomManager = require('./game/PublicRoomManager');
 
-// ── Game config ──
-const W = 8000, H = 8000;
-const TICK        = 33;  // 30Hz — was 22Hz, halves perceived jitter
-const SPEED       = 5.6;
-const BOOST_SPEED = SPEED * 1.5;
-const BOOST_TICKS = 44;
-const COOLDOWN_T  = 111;
-const TURN        = 0.17;
-const FOOD_N      = 1400;
-const INIT_LEN    = 55;
-const MAX_LEN     = 450;
-const RESPAWN_T   = 55;
-const BOT_COUNT   = 10;
-
-const FOOD_GROWTH = [0.2, 1/3, 1.0];
-const FOOD_RADIUS = [3, 5, 7];
-const R_MIN = 14, R_MAX = 32, VISUAL_REF = 150;
-
-// ── Perf config ──
-const VIEW_W = 1600; // viewport half-width (world units)
-const VIEW_H = 1100; // viewport half-height
-
-const COLORS = [
-  '#4ade80','#f97316','#3b82f6','#ec4899',
-  '#a855f7','#eab308','#06b6d4','#ef4444',
-  '#10b981','#f43f5e','#8b5cf6','#22d3ee',
-  '#fb923c','#34d399','#818cf8','#f472b6',
-];
-
-const BOT_NAMES = [
-  'Viper','Blitz','Grudge','Frost','Spike',
-  'Hunter','Cobra','Shadow','Striker','Venom',
-  'Axel','Nova','Rex',
-];
-
-// ── HTTP ──
+// ── HTTP ──────────────────────────────────────────────────────────────────────
 const httpServer = http.createServer((req, res) => {
   const fp = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
   fs.readFile(fp, (err, data) => {
     if (err) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200); res.end(data);
+    const ext = path.extname(fp);
+    const mime = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css' };
+    res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
+    res.end(data);
   });
 });
 
+// ── Room managers ─────────────────────────────────────────────────────────────
+const privateRooms = new Map();
+
+function onElimination(roomId, playerId, stats) {
+  // TODO Sprint 3: trigger Death Chronicle NFT mint
+  console.log(`[ELIMINATION] room=${roomId} player=${stats.name} score=${stats.score}`);
+}
+
+function onSessionEnd(roomId, data) {
+  // TODO Sprint 3: trigger Tournament Chronicle for private rooms
+  console.log(`[SESSION_END] room=${roomId} winner=${data.winner?.name || 'none'}`);
+}
+
+const publicRooms = new PublicRoomManager({ onElimination, onSessionEnd });
+
+// ── WebSocket server ──────────────────────────────────────────────────────────
 const wss = new WebSocket.Server({ server: httpServer });
 
-let players = {};
-let food    = [];
-let nextId  = 1;
-let colIdx  = 0;
-
-// id → WebSocket (for per-client viewport messages)
-const wsMap = new Map();
-
-// ── Utils ──
-function rnd(n) { return Math.random() * n; }
-function d2(ax, ay, bx, by) { const dx=ax-bx,dy=ay-by; return dx*dx+dy*dy; }
-function angleDiff(a, b) {
-  let d = a - b;
-  while (d >  Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return d;
-}
-
-function segR(tlen) {
-  const t = Math.min(1, (tlen - INIT_LEN) / (VISUAL_REF - INIT_LEN));
-  return R_MIN + Math.sqrt(t) * (R_MAX - R_MIN);
-}
-
-// ── Payload helpers ──
-function playerPayload(p, thin = true) {
-  let segs = p.segs;
-  if (thin && segs.length > 1) {
-    const R = segR(p.targetLen);
-    const step = Math.max(2, Math.floor(R / SPEED));
-    const thinned = [segs[0]];
-    for (let i = step; i < segs.length; i += step) thinned.push(segs[i]);
-    if (thinned[thinned.length - 1] !== segs[segs.length - 1]) {
-      thinned.push(segs[segs.length - 1]);
-    }
-    segs = thinned;
-  }
-  return {
-    s:     segs,
-    a:     p.angle,
-    c:     p.color,
-    n:     p.name,
-    ht:    p.headType,
-    alive: p.alive,
-    rt:    p.respawn,
-    sc:    p.score,
-    kl:    p.kills,
-    len:   p.segs.length,
-    tlen:  p.targetLen,
-    bo:    p.boostActive,
-    bcd:   p.boostCooldown,
-    bot:   p.isBot,
-  };
-}
-
-// ── Snake factory ──
-function mkSnake(name, color, isBot=false, headType=0) {
-  const x = 500 + rnd(W - 1000);
-  const y = 500 + rnd(H - 1000);
-  const a = rnd(Math.PI * 2);
-  const segs = [];
-  for (let i = 0; i < INIT_LEN; i++) {
-    segs.push([Math.round(x - Math.cos(a)*i*SPEED), Math.round(y - Math.sin(a)*i*SPEED)]);
-  }
-  return {
-    name, color, isBot, headType,
-    segs, angle: a, targetAngle: a,
-    targetLen: INIT_LEN, growthAcc: 0, score: 0, kills: 0,
-    alive: true, respawn: 0,
-    boostActive: false, boostTimer: 0, boostCooldown: 0,
-    _lastHead: null,
-    _botTick: 0, _botTarget: null,
-  };
-}
-
-// ── Food ──
-function fillFood() {
-  while (food.length < FOOD_N) {
-    const r = Math.random();
-    const type = r < 0.60 ? 0 : r < 0.90 ? 1 : 2;
-    food.push([Math.round(rnd(W)), Math.round(rnd(H)), Math.floor(rnd(COLORS.length)), type]);
-  }
-}
-
-function dropFood(segs) {
-  const step = Math.max(1, Math.floor(segs.length / 30));
-  for (let i = 0; i < segs.length; i += step) {
-    const [fx, fy] = segs[i];
-    food.push([
-      Math.round(Math.max(10, Math.min(W-10, fx + rnd(22)-11))),
-      Math.round(Math.max(10, Math.min(H-10, fy + rnd(22)-11))),
-      Math.floor(rnd(COLORS.length)), 1,
-    ]);
-  }
-}
-
-// ── Bot AI ──
-function botAI(bot) {
-  if (!bot.alive) return;
-  const [hx, hy] = bot.segs[0];
-  bot._botTick++;
-
-  const margin = 500;
-  if (hx < margin || hx > W-margin || hy < margin || hy > H-margin) {
-    bot.targetAngle = Math.atan2(H/2 - hy, W/2 - hx) + (rnd(1)-0.5)*0.2;
-    if (!bot.boostActive && !bot.boostCooldown) {
-      bot.boostActive = true; bot.boostTimer = BOOST_TICKS;
-    }
-    return;
-  }
-
-  if (bot._botTick % 30 === 0 || !bot._botTarget) {
-    let best = null, bestScore = Infinity;
-    const n = Math.min(food.length, 80);
-    for (let i = 0; i < n; i++) {
-      const f = food[Math.floor(rnd(food.length))];
-      const dd = d2(hx, hy, f[0], f[1]);
-      const score = dd / (f[3]+1);
-      if (score < bestScore) { bestScore = score; best = f; }
-    }
-    bot._botTarget = best;
-  }
-
-  if (bot._botTarget) {
-    bot.targetAngle = Math.atan2(bot._botTarget[1]-hy, bot._botTarget[0]-hx) + (rnd(1)-0.5)*0.15;
-    if (d2(hx, hy, bot._botTarget[0], bot._botTarget[1]) < 625) bot._botTarget = null;
-  }
-
-  if (!bot.boostActive && !bot.boostCooldown && rnd(1) < 0.006) {
-    bot.boostActive = true; bot.boostTimer = BOOST_TICKS;
-  }
-}
-
-// ── Bots init ──
-function initBots() {
-  for (let i = 0; i < BOT_COUNT; i++) {
-    players[`bot_${i}`] = mkSnake(BOT_NAMES[i], COLORS[colIdx++ % COLORS.length], true, Math.floor(rnd(5)));
-  }
-}
-
-// ── Game loop ──
-function tick() {
-  const entries = Object.entries(players);
-
-  for (const [, p] of entries) { if (p.isBot) botAI(p); }
-
-  for (const [, p] of entries) {
-    if (!p.alive) {
-      if (--p.respawn <= 0) {
-        const fresh = mkSnake(p.name, p.color, p.isBot, p.headType);
-        Object.assign(p, fresh);
-      }
-      continue;
-    }
-
-    const diff = angleDiff(p.targetAngle, p.angle);
-    p.angle += Math.sign(diff) * Math.min(Math.abs(diff), TURN);
-
-    if (p.boostActive) {
-      if (--p.boostTimer <= 0) { p.boostActive = false; p.boostCooldown = COOLDOWN_T; }
-    }
-    if (p.boostCooldown > 0) p.boostCooldown--;
-
-    const spd = p.boostActive ? BOOST_SPEED : SPEED;
-    const [hx, hy] = p.segs[0];
-    const nx = hx + Math.cos(p.angle) * spd;
-    const ny = hy + Math.sin(p.angle) * spd;
-
-    if (nx < 0 || nx > W || ny < 0 || ny > H) {
-      p._lastHead = p.segs[0];
-      dropFood(p.segs);
-      p.alive = false; p.respawn = RESPAWN_T; p.segs = [];
-      continue;
-    }
-
-    p.segs.unshift([Math.round(nx), Math.round(ny)]);
-
-    const myR = segR(p.targetLen);
-    for (let i = food.length-1; i >= 0; i--) {
-      const [fx, fy, , ftype] = food[i];
-      const eatD2 = (myR + FOOD_RADIUS[ftype]) ** 2;
-      if (d2(nx, ny, fx, fy) < eatD2) {
-        food.splice(i, 1);
-        p.growthAcc += FOOD_GROWTH[ftype];
-        while (p.growthAcc >= 1) {
-          p.targetLen = Math.min(p.targetLen + 1, MAX_LEN);
-          p.growthAcc -= 1;
-        }
-        p.score++;
-      }
-    }
-
-    if (p.segs.length > p.targetLen) p.segs.length = p.targetLen;
-  }
-
-  // ── Collision ──
-  const alive = entries.filter(([,p]) => p.alive && p.segs.length > 0);
-  for (const [id, p] of alive) {
-    if (!p.alive) continue;
-    const [hx, hy] = p.segs[0];
-    const myR = segR(p.targetLen);
-
-    for (const [oid, other] of alive) {
-      if (oid === id) continue;
-      const oR = segR(other.targetLen);
-      const killD2 = (myR * 0.75 + oR * 0.75) ** 2;
-
-      for (let i = 2; i < other.segs.length; i += 2) {
-        if (d2(hx, hy, other.segs[i][0], other.segs[i][1]) < killD2) {
-          p._lastHead = p.segs[0];
-          dropFood(p.segs);
-          p.alive = false; p.respawn = RESPAWN_T; p.segs = [];
-          if (!other.isBot) other.kills++;
-          break;
-        }
-      }
-      if (!p.alive) break;
-    }
-  }
-
-  fillFood();
-
-  // ── Leaderboard (all players, no segs) — built once per tick ──
-  const lb = {};
-  for (const [pid, p] of entries) {
-    lb[pid] = { n: p.name, sc: p.score, kl: p.kills, alive: p.alive, bot: p.isBot, tlen: p.targetLen, c: p.color };
-  }
-
-  // ── Per-client broadcast with viewport culling ──
-  for (const [cid, cws] of wsMap) {
-    if (cws.readyState !== 1) continue;
-    const me = players[cid];
-    if (!me) continue;
-
-    const center = (me.alive && me.segs.length)
-      ? me.segs[0]
-      : (me._lastHead || [W/2, H/2]);
-    const [cx, cy] = center;
-
-    const visP = {};
-    for (const [pid, p] of entries) {
-      if (pid === cid) { visP[pid] = playerPayload(p); continue; }
-      if (!p.segs.length) continue;
-      const [phx, phy] = p.segs[0];
-      if (Math.abs(phx - cx) > VIEW_W || Math.abs(phy - cy) > VIEW_H) continue;
-      visP[pid] = playerPayload(p);
-    }
-
-    const visF = food.filter(([fx, fy]) =>
-      Math.abs(fx - cx) <= VIEW_W && Math.abs(fy - cy) <= VIEW_H
-    );
-
-    cws.send(JSON.stringify({ t: 's', p: visP, f: visF, lb }));
-  }
-}
-
-fillFood();
-initBots();
-
-// Self-correcting game loop — tracks absolute time so late ticks
-// don't accumulate drift. Keeps tick rate stable under load.
-let _nextTick = Date.now();
-(function loop() {
-  tick();
-  _nextTick += TICK;
-  setTimeout(loop, Math.max(0, _nextTick - Date.now()));
-})();
-
 wss.on('connection', ws => {
-  const id = String(nextId++);
-  wsMap.set(id, ws);
+  let assignedRoomId = null;
+  let assignedPlayerId = null;
+  let isJudge = false;
 
   ws.on('message', raw => {
     try {
       const d = JSON.parse(raw);
-      if (d.t === 'join') {
-        players[id] = mkSnake((d.n||'Snake').slice(0,16), COLORS[colIdx++ % COLORS.length], false, d.ht||0);
-        ws.send(JSON.stringify({ t: 'ok', id }));
+
+      // ── JOIN PUBLIC ROOM ──
+      if (d.t === 'join_public') {
+        const room = publicRooms.findOpenRoom();
+        if (!room) {
+          ws.send(JSON.stringify({ t: 'error', msg: 'All public rooms are full. Try again soon.' }));
+          return;
+        }
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), d.ht || 0);
+        if (!pid) { ws.send(JSON.stringify({ t: 'error', msg: 'Room full' })); return; }
+        assignedRoomId   = room.id;
+        assignedPlayerId = pid;
+        return;
       }
-      if (d.t === 'a' && players[id]?.alive) {
-        players[id].targetAngle = d.a;
+
+      // ── CREATE PRIVATE ROOM ──
+      if (d.t === 'create_private') {
+        const roomId = 'prv_' + Math.random().toString(36).slice(2, 7).toUpperCase();
+        const pass   = (d.pass || '').slice(0, 20);
+        const room   = new GameRoom(roomId, 'private', {
+          password:   pass,
+          botCount:   0,
+          respawn:    true,
+          maxPlayers: 30,
+          onElimination,
+          onSessionEnd,
+        });
+        privateRooms.set(roomId, room);
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), d.ht || 0);
+        assignedRoomId   = roomId;
+        assignedPlayerId = pid;
+        ws.send(JSON.stringify({ t: 'room_created', roomId, pass }));
+        return;
       }
-      if (d.t === 'boost' && players[id]?.alive && !players[id].boostActive && !players[id].boostCooldown) {
-        players[id].boostActive = true;
-        players[id].boostTimer  = BOOST_TICKS;
+
+      // ── JOIN PRIVATE ROOM ──
+      if (d.t === 'join_private') {
+        const room = privateRooms.get(d.roomId);
+        if (!room) { ws.send(JSON.stringify({ t: 'error', msg: 'Room not found' })); return; }
+        if (room.password && room.password !== d.pass) {
+          ws.send(JSON.stringify({ t: 'error', msg: 'Wrong password' })); return;
+        }
+        if (room.isFull()) { ws.send(JSON.stringify({ t: 'error', msg: 'Room is full' })); return; }
+
+        if (d.role === 'judge') {
+          if (room.judgeId) { ws.send(JSON.stringify({ t: 'error', msg: 'Judge slot taken' })); return; }
+          room.setJudge(ws, (d.n || 'Judge').slice(0, 16));
+          assignedRoomId = d.roomId;
+          isJudge = true;
+          return;
+        }
+
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), d.ht || 0);
+        if (!pid) { ws.send(JSON.stringify({ t: 'error', msg: 'Room full' })); return; }
+        assignedRoomId   = d.roomId;
+        assignedPlayerId = pid;
+        if (!room.sessionActive) room.startSession();
+        return;
       }
-    } catch {}
+
+      // ── GET ROOM LIST (for lobby) ──
+      if (d.t === 'get_rooms') {
+        ws.send(JSON.stringify({ t: 'rooms', public: publicRooms.getRoomList() }));
+        return;
+      }
+
+      // ── IN-GAME MESSAGES ──
+      if (assignedRoomId && assignedPlayerId) {
+        const room = privateRooms.get(assignedRoomId) || publicRooms.getRoomById(assignedRoomId);
+        if (room) room.handleMessage(assignedPlayerId, d);
+      }
+
+    } catch (e) { console.error('WS parse error:', e.message); }
   });
 
   ws.on('close', () => {
-    delete players[id];
-    wsMap.delete(id);
+    if (!assignedRoomId) return;
+    const room = privateRooms.get(assignedRoomId) || publicRooms.getRoomById(assignedRoomId);
+    if (!room) return;
+    if (isJudge) { room.judgeWs = null; room.judgeId = null; return; }
+    if (assignedPlayerId) room.removePlayer(assignedPlayerId);
+    if (privateRooms.has(assignedRoomId) && room.humanCount() === 0) {
+      room.stopSession();
+      privateRooms.delete(assignedRoomId);
+    }
   });
 });
 
