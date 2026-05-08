@@ -30,6 +30,11 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .l-logo{font-family:var(--fd);font-size:20px;color:#F3F4F6;letter-spacing:-.01em}
 .l-logo span{color:var(--green)}
 .l-nav-right{display:flex;align-items:center;gap:10px;position:relative}
+.ritual-badge{display:flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--g7);border-radius:20px;font-family:var(--fm);font-size:11px;color:var(--g4);background:rgba(17,24,39,.5)}
+.ritual-dot{width:7px;height:7px;border-radius:50%;background:var(--g5);flex-shrink:0;transition:background .3s}
+.ritual-badge.active .ritual-dot{background:var(--green)}
+.ritual-badge.congested .ritual-dot{background:var(--gold)}
+.ritual-badge.error .ritual-dot{background:var(--red)}
 .mkt-nav-btn{display:flex;align-items:center;gap:7px;padding:7px 14px;border:1px solid var(--g7);border-radius:8px;background:transparent;color:var(--g4);font-family:var(--fb);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
 .mkt-nav-btn:hover{border-color:var(--lime);color:var(--lime);background:rgba(191,255,0,.04)}
 .w-wrap{position:relative}
@@ -239,6 +244,9 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
   <nav class="l-nav">
     <div class="l-logo">Ritual<span>Snake</span></div>
     <div class="l-nav-right">
+      <div id="ritual-badge" class="ritual-badge">
+        <span class="ritual-dot"></span>Ritual · <span id="ritual-status-text">Checking</span>
+      </div>
       <button class="mkt-nav-btn" onclick="showToast('Skin Market — coming soon')">◐ Skin Market</button>
       <div class="w-wrap">
         <button class="wbtn" id="wbtn" onclick="toggleWallet()">
@@ -463,6 +471,30 @@ function getName() {
   const adj  = ['Swift','Neon','Dark','Frost','Blaze','Venom','Lunar','Hyper'];
   const noun = ['Viper','Cobra','Ghost','Titan','Storm','Blade','Apex','Fang'];
   return adj[Math.floor(Math.random()*adj.length)] + noun[Math.floor(Math.random()*noun.length)];
+}
+
+async function checkRitualStatus() {
+  const badge = document.getElementById('ritual-badge');
+  const txt   = document.getElementById('ritual-status-text');
+  if (!badge) return;
+  const t0 = Date.now();
+  try {
+    const res = await Promise.race([
+      fetch('https://rpc.ritualfoundation.org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc:'2.0', method:'eth_blockNumber', params:[], id:1 }),
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+    ]);
+    const ms = Date.now() - t0;
+    if (!res.ok) throw new Error('bad response');
+    badge.className = 'ritual-badge ' + (ms < 2000 ? 'active' : 'congested');
+    txt.textContent = ms < 2000 ? 'Active' : 'Congested';
+  } catch (_) {
+    badge.className = 'ritual-badge error';
+    txt.textContent = 'Error';
+  }
 }
 
 // ── Wallet (stub — real connect via EIP-1193 later) ───
@@ -985,6 +1017,8 @@ setInterval(() => { if (boostHeld) tryBoost(); }, 400);
 })();
 
 resizeCanvas();
+checkRitualStatus();
+setInterval(checkRitualStatus, 30_000);
 </script>
 </body>
 </html>
