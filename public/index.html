@@ -260,6 +260,44 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .skm-card-name{font-size:11px;color:var(--g4);font-family:var(--fm)}
 .skm-card.active .skm-card-name{color:var(--green)}
 .skm-equip-badge{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);margin-top:3px}
+
+/* ── NFT CARD ─────────────────────────────────────────── */
+#screen-nft-card{background:#0a0a0a;align-items:center;justify-content:center}
+.nft-bg{display:flex;flex-direction:column;align-items:center;gap:16px;padding:24px}
+.nft-card{position:relative;background:#111a12;border:1px solid #3a5c3a;border-radius:14px;padding:20px;width:340px;box-shadow:0 0 40px rgba(25,209,132,.08)}
+.nft-card-border{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(to right,var(--green),rgba(25,209,132,.2),transparent);border-radius:14px 14px 0 0}
+.nft-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.nft-player-name{font-family:var(--fd);font-size:22px;color:#F3F4F6;letter-spacing:.05em}
+.nft-meta-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+.nft-match-type{font-family:var(--fm);font-size:10px;color:var(--g5)}
+.nft-skin-badge{font-family:var(--fm);font-size:10px;color:var(--green);background:rgba(25,209,132,.1);border:1px solid rgba(25,209,132,.3);padding:2px 8px;border-radius:20px}
+.nft-rank-badge{width:52px;height:52px;border-radius:50%;background:var(--gold);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--fd);font-size:17px;color:#000;flex-shrink:0}
+.nft-rank-badge small{font-size:8px;font-family:var(--fb);font-weight:600;letter-spacing:.1em;color:#000;margin-top:-2px}
+.nft-card-mid{display:flex;gap:14px;align-items:center;margin-bottom:14px}
+#nft-portrait{border-radius:8px;background:#0d1a0e}
+.nft-stats{display:flex;flex-direction:column;gap:8px;flex:1}
+.nft-stat-box{background:var(--bg2);border:1px solid var(--g7);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px}
+.nft-stat-icon{font-size:12px;color:var(--g5)}
+.nft-stat-val{font-family:var(--fm);font-size:18px;font-weight:600;color:#F3F4F6;flex:1}
+.nft-green{color:var(--green)}
+.nft-red{color:var(--red)}
+.nft-stat-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--g5)}
+.nft-epitaph{font-style:italic;font-size:12px;color:var(--g5);text-align:center;padding:10px 0;border-top:1px dashed var(--g7);border-bottom:1px dashed var(--g7);margin-bottom:12px}
+.nft-info-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.nft-info-row{display:flex;justify-content:space-between;font-size:10px}
+.nft-info-row span:first-child{color:var(--g5);text-transform:uppercase;letter-spacing:.08em;font-family:var(--fm)}
+.nft-info-row span:last-child{color:var(--g4);font-family:var(--fm)}
+.nft-footer-row{display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--g7)}
+.nft-token-id{font-family:var(--fm);font-size:10px;color:var(--g5)}
+.nft-badge{font-family:var(--fm);font-size:9px;color:var(--green);border:1px solid rgba(25,209,132,.3);padding:2px 7px;border-radius:3px}
+.nft-actions{display:flex;gap:12px}
+.nft-btn{min-width:150px;padding:12px 20px;border-radius:10px;border:1px solid;background:transparent;font-family:var(--fb);font-size:13px;font-weight:600;cursor:pointer;transition:all .18s}
+.nft-primary{border-color:var(--gold);color:var(--gold)}
+.nft-primary:hover{background:rgba(250,204,21,.08)}
+.nft-secondary{border-color:var(--g7);color:var(--g4)}
+.nft-secondary:hover{border-color:var(--g5);color:var(--g3)}
+.nft-lobby-btn{background:transparent;border:none;color:var(--g5);font-family:var(--fb);font-size:12px;cursor:pointer;padding:6px 12px;border-radius:6px;transition:color .15s}
+.nft-lobby-btn:hover{color:var(--g3)}
 </style>
 </head>
 <body>
@@ -376,6 +414,61 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
   </div>
   <div class="timer-fl"><span class="timer-ic">◌</span><span class="timer-v" id="hud-timer">—:——</span></div>
   <div class="controls-hint">Mouse to steer · Space / Click to boost</div>
+</div>
+
+<!-- ═══ NFT CARD ═════════════════════════════════════════ -->
+<div class="screen" id="screen-nft-card">
+  <div class="nft-bg">
+    <div class="nft-card" id="nft-card-inner">
+      <div class="nft-card-border"></div>
+      <div class="nft-card-top">
+        <div class="nft-card-left">
+          <div class="nft-player-name" id="nft-name">PLAYER</div>
+          <div class="nft-meta-row">
+            <span class="nft-match-type">◇ PUBLIC MATCH</span>
+            <span class="nft-skin-badge" id="nft-skin-badge">DEFAULT</span>
+          </div>
+        </div>
+        <div class="nft-rank-badge" id="nft-rank">#1<small>RANK</small></div>
+      </div>
+      <div class="nft-card-mid">
+        <canvas id="nft-portrait" width="180" height="195"></canvas>
+        <div class="nft-stats">
+          <div class="nft-stat-box">
+            <div class="nft-stat-icon">★</div>
+            <div class="nft-stat-val" id="nft-score">0</div>
+            <div class="nft-stat-lbl">SCORE</div>
+          </div>
+          <div class="nft-stat-box">
+            <div class="nft-stat-icon">↺</div>
+            <div class="nft-stat-val nft-green" id="nft-len">0</div>
+            <div class="nft-stat-lbl">LENGTH</div>
+          </div>
+          <div class="nft-stat-box">
+            <div class="nft-stat-icon">✕</div>
+            <div class="nft-stat-val nft-red" id="nft-kills">0</div>
+            <div class="nft-stat-lbl">KILLS</div>
+          </div>
+        </div>
+      </div>
+      <div class="nft-epitaph" id="nft-epitaph">"They fought with everything they had."</div>
+      <div class="nft-info-rows">
+        <div class="nft-info-row"><span>PLAYER</span><span id="nft-info-player">—</span></div>
+        <div class="nft-info-row"><span>SESSION</span><span id="nft-info-session">—</span></div>
+        <div class="nft-info-row"><span>DURATION</span><span id="nft-info-duration">—</span></div>
+        <div class="nft-info-row"><span>CHAIN</span><span style="color:var(--green)">Ritual Chain 1979</span></div>
+      </div>
+      <div class="nft-footer-row">
+        <span class="nft-token-id" id="nft-token-id">RITUAL-SNAKE-0000000</span>
+        <span class="nft-badge">NFT</span>
+      </div>
+    </div>
+    <div class="nft-actions">
+      <button class="nft-btn nft-primary" id="nft-mint-btn" onclick="mintNft()">○ Mint as NFT</button>
+      <button class="nft-btn nft-secondary" onclick="shareOnX()">✕ Share on X</button>
+    </div>
+    <button class="nft-lobby-btn" id="nft-lobby-btn" style="display:none" onclick="backToLobby()">← Back to Lobby</button>
+  </div>
 </div>
 
 <!-- ═══ QUEUE ════════════════════════════════════════════ -->
@@ -661,15 +754,32 @@ function handleMsg(d) {
       if (pingSentAt) { pingMs = Date.now() - pingSentAt; pingSentAt = 0; }
       break;
 
-    case 'eliminated':
+    case 'eliminated': {
       stopRenderLoop();
-      showEliminated(d.stats);
+      const lbE = gameState?.lb || {};
+      const sortedE = Object.entries(lbE).sort(([,a],[,b]) => b.sc - a.sc);
+      const rankE = sortedE.findIndex(([id]) => id === myId) + 1;
+      showNftCard(d.stats, rankE || sortedE.length, sortedE.length, myRoomId);
       break;
+    }
 
-    case 'session_end':
+    case 'session_end': {
       stopRenderLoop();
+      if (myRoomId && myRoomId.startsWith('prv_')) {
+        showChronicle(d.chronicleEvents || [], d.results || [], myRoomId);
+        break;
+      }
+      const results = d.results || [];
+      const myName = gameState?.p?.[myId]?.n;
+      const myResult = myName ? results.find(r => r.name === myName) : null;
+      if (myResult) {
+        const rank = results.indexOf(myResult) + 1;
+        showNftCard({ ...myResult, length: myResult.maxLen || myResult.length || 0 }, rank, results.length, myRoomId);
+        break;
+      }
       showResults(d);
       break;
+    }
 
     case 'room_reset':
       stopRenderLoop();
@@ -742,6 +852,137 @@ function startQueueCountdown(ms) {
   }
   tick();
 }
+const NFT_EPITAPHS = [
+  "They fought with everything they had. The grid took note.",
+  "The arena remembers those who dared.",
+  "Speed was their weapon. The wall, their end.",
+  "Not all snakes survive. This one left a mark.",
+  "The longest shadow on the grid.",
+  "Born of chaos. Returned to it.",
+  "Every score tells a story. This one ends here.",
+  "The grid is undefeated. But they came close.",
+];
+
+let _nftStats = null;
+
+function showNftCard(stats, rank, playerCount, roomId) {
+  _nftStats = { stats, rank, playerCount, roomId };
+  const name = (stats.name || 'PLAYER').toUpperCase();
+  document.getElementById('nft-name').textContent = name;
+  document.getElementById('nft-score').textContent = (stats.score || 0).toLocaleString();
+  document.getElementById('nft-len').textContent   = stats.length || stats.maxLen || 0;
+  document.getElementById('nft-kills').textContent = stats.kills  || 0;
+  document.getElementById('nft-skin-badge').textContent = (selectedSkin || 'default').toUpperCase();
+
+  const rankEl = document.getElementById('nft-rank');
+  rankEl.innerHTML = '#' + rank + '<small>RANK</small>';
+  rankEl.style.background = rank === 1 ? 'var(--gold)' : rank === 2 ? '#94A3B8' : rank === 3 ? '#B45309' : 'var(--g7)';
+  rankEl.style.color = rank <= 3 ? '#000' : 'var(--g4)';
+
+  document.getElementById('nft-epitaph').textContent =
+    '"' + NFT_EPITAPHS[Math.floor(Math.random() * NFT_EPITAPHS.length)] + '"';
+
+  const addr = walletAddr
+    ? walletAddr.slice(0, 6) + '...' + walletAddr.slice(-4)
+    : 'no wallet';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+  document.getElementById('nft-info-player').textContent  = (stats.name || '?') + ' · ' + addr;
+  document.getElementById('nft-info-session').textContent = dateStr + ' · ' + (roomId || '?');
+  document.getElementById('nft-info-duration').textContent = '10 min · ' + playerCount + ' players';
+  document.getElementById('nft-token-id').textContent =
+    'RITUAL-SNAKE-' + String(Math.floor(Math.random() * 9999999)).padStart(7, '0');
+
+  drawNftPortrait(stats);
+
+  const mintBtn = document.getElementById('nft-mint-btn');
+  mintBtn.textContent = '○ Mint as NFT';
+  mintBtn.disabled = false;
+  document.getElementById('nft-lobby-btn').style.display = 'none';
+
+  showScreen('nft-card');
+}
+
+function drawNftPortrait() {
+  const cv = document.getElementById('nft-portrait');
+  if (!cv) return;
+  const c = cv.getContext('2d');
+  const cW = cv.width, cH = cv.height;
+  c.fillStyle = '#0d1a0e'; c.fillRect(0, 0, cW, cH);
+  const skin = (window.SKINS_MAP && window.SKINS_MAP[selectedSkin]) || window.SKINS_MAP?.default;
+  const col = (skin && skin.color) || '#19D184';
+  const pr = 14;
+  const pts = [];
+  for (let i = 0; i < 24; i++) {
+    const t = i / 23;
+    const x = cW * 0.15 + t * cW * 0.7;
+    const y = cH / 2 + Math.sin(t * Math.PI * 2.2) * cH * 0.32;
+    pts.push([x, y]);
+  }
+  c.beginPath(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.lineWidth = pr * 2; c.strokeStyle = col;
+  c.moveTo(pts[0][0], pts[0][1]);
+  pts.forEach(([x, y]) => c.lineTo(x, y));
+  c.stroke();
+  c.lineWidth = pr * 0.6; c.strokeStyle = 'rgba(255,255,255,0.07)'; c.stroke();
+  if (skin) {
+    for (let i = 2; i < pts.length; i += 3) skin.drawBodyMark(c, pts[i][0], pts[i][1], pr * 0.38);
+  }
+  const [hx, hy] = pts[0];
+  c.beginPath(); c.arc(hx, hy, pr, 0, Math.PI * 2);
+  c.fillStyle = col; c.fill();
+  if (skin) skin.drawHead(c, hx, hy, pr, 0);
+  const eyeR = pr * 0.22, pupR = eyeR * 0.55;
+  for (const s of [-1, 1]) {
+    c.beginPath(); c.arc(hx + pr*0.35, hy + pr*0.55*s*0.5, eyeR, 0, Math.PI*2);
+    c.fillStyle = 'rgba(0,0,0,0.9)'; c.fill();
+    c.beginPath(); c.arc(hx + pr*0.35 - eyeR*0.3, hy + pr*0.55*s*0.5 - eyeR*0.3, pupR, 0, Math.PI*2);
+    c.fillStyle = '#fff'; c.fill();
+  }
+}
+
+async function mintNft() {
+  if (!walletAddr) {
+    await connectWallet();
+    if (!walletAddr) return;
+  }
+  const btn = document.getElementById('nft-mint-btn');
+  btn.textContent = '○ Minting...'; btn.disabled = true;
+  try {
+    if (typeof ethers === 'undefined') throw new Error('ethers.js not loaded');
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer   = await provider.getSigner();
+    const abi = ['function mint(string name,uint256 score,uint256 kills,uint256 length,string skin) payable'];
+    const addr = window.CHRONICLE_NFT_ADDRESS || '0x0000000000000000000000000000000000000000';
+    const contract = new ethers.Contract(addr, abi, signer);
+    const s = _nftStats?.stats || {};
+    const tx = await contract.mint(
+      s.name || 'Snake', BigInt(s.score || 0),
+      BigInt(s.kills || 0), BigInt(s.length || 0), selectedSkin || 'default'
+    );
+    await tx.wait();
+    btn.textContent = '✓ Minted!';
+  } catch (e) {
+    btn.textContent = '✕ Failed — retry';
+    btn.disabled = false;
+    showToast(e.reason || e.message || 'Mint failed');
+    return;
+  }
+  document.getElementById('nft-lobby-btn').style.display = '';
+}
+
+function shareOnX() {
+  const s = _nftStats?.stats || {};
+  const rank = _nftStats?.rank || '?';
+  const text = encodeURIComponent(
+    'I just played Ritual Snake — Score: ' + (s.score||0).toLocaleString() +
+    ' · Length: ' + (s.length||0) + ' · Kills: ' + (s.kills||0) +
+    ' · Rank #' + rank + '\n\nPlay at http://168.144.142.150:3000 #RitualSnake #RitualChain'
+  );
+  window.open('https://x.com/intent/tweet?text=' + text, '_blank');
+  document.getElementById('nft-lobby-btn').style.display = '';
+}
+
 function stopQueueCountdown() {
   if (_qTimer) { clearTimeout(_qTimer); _qTimer = null; }
 }
@@ -1189,5 +1430,6 @@ checkRitualStatus();
 setInterval(checkRitualStatus, 30_000);
 </script>
 <script src="/skins.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
 </body>
 </html>
