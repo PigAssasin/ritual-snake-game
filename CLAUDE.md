@@ -15,9 +15,11 @@ Multiplayer Snake.io game with Ritual Chain integration. Players compete in room
 ```
 server.js                    — WebSocket server, room manager, delegates to game/
 public/index.html            — Full game client (Canvas + wallet connect + lobby UI)
+public/skins.js              — 10 skin definitions with custom drawHead() icons per skin
+public/bg.jpg                — Ritual-brand lobby background (Higgsfield generated)
 game/
   GameRoom.js                — Self-contained game instance (tick loop, bots, food, collision)
-  PublicRoomManager.js       — 5 persistent public rooms, auto-assigns players
+  PublicRoomManager.js       — 1 persistent public room, auto-assigns players
   SpatialGrid.js             — O(1) spatial hash for collision + food pickup
 ritual/
   deathChronicle.js          — Ritual LLM (0x0802) epitaph + Image (0x0818) portrait → NFT
@@ -33,11 +35,14 @@ hardhat.config.js            — Ritual testnet config (chainId 1979)
 
 ## VPS Deploy
 ```bash
-# Upload changed files
-pscp -pw PASSWORD -r game ritual server.js public/index.html root@168.144.142.150:/root/snake-game/
+# Upload changed files (examples)
+pscp -pw PASSWORD "public/index.html" root@168.144.142.150:/root/snake-game/public/
+pscp -pw PASSWORD "public/skins.js"   root@168.144.142.150:/root/snake-game/public/
+pscp -pw PASSWORD "game/GameRoom.js"  root@168.144.142.150:/root/snake-game/game/
+pscp -pw PASSWORD -r game             root@168.144.142.150:/root/snake-game/
 
 # Restart
-plink -ssh -pw PASSWORD root@168.144.142.150 "cd /root/snake-game && npm install && pm2 restart snake-game"
+plink -ssh -pw PASSWORD root@168.144.142.150 "pm2 restart snake-game"
 ```
 - VPS: 168.144.142.150 (DigitalOcean Singapore)
 - PM2 process: `snake-game` (id 0), path `/root/snake-game/`
@@ -50,16 +55,31 @@ TICK = 33ms           — 30Hz game loop
 SPEED = 5.6           — base movement speed
 BOOST_SPEED = ×1.5    — 2s duration, 5s cooldown
 FOOD_N = 1400         — target food count on map
+FOOD_GROWTH = [1.2, 1.66, 5.0]  — length gain per food type (common/medium/rare)
 BOT_COUNT = 5 (public) / 0 (private)
-SESSION_MS = 10min    — public room session duration
+SESSION_MS = 7min     — public room session duration
 VIEW_W/H = 1600/1100  — per-client viewport culling
 ```
 
+### Snake Size Formula (GameRoom.js + client)
+```js
+// Hyperbolic: grows fast early, asymptotic toward R_MAX
+R_MIN = 12, R_MAX = 44, WIDTH_K = 200
+segR(tlen) = R_MIN + (R_MAX - R_MIN) * s / (s + WIDTH_K)
+// where s = tlen - INIT_LEN (INIT_LEN = 55)
+```
+| Length gained | Width % of max |
+|--------------|---------------|
+| ~10 food     | ~9%           |
+| ~50 food     | ~33%          |
+| ~150 food    | ~55%          |
+| ~350 food    | ~74%          |
+
 ## Room System
-| Mode | Respawn | Max Players | Bots | Session |
-|------|---------|-------------|------|---------|
-| Public | No (elimination) | 10/room × 5 rooms | 5 | 10 min, auto-reset |
-| Private | Yes | 30 | 0 | 10 min, 1 judge slot |
+| Mode | Respawn | Max Players | Bots | Session | Min join time |
+|------|---------|-------------|------|---------|--------------|
+| Public | No (elimination) | 10/room × 1 room | 5 | 7 min, auto-reset | ≥4 min left |
+| Private | Yes | 30 | 0 | 7 min, 1 judge slot | — |
 
 **WS message types (client → server):**
 - `join_public` — join first available public room
@@ -105,6 +125,22 @@ npx hardhat run scripts/deploy.js --network ritual
 # 3. Paste CONTRACT_ADDRESS + CHRONICLE_NFT_ADDRESS into .env and public/index.html
 ```
 
+## Skin System (public/skins.js)
+- 10 skins: default, snowflake, fire, neon, sakura, cyber, venom, ocean, galaxy, gold
+- Each skin has `drawHead(ctx, x, y, r, a)` — draws a **custom icon** replacing the default circle+eyes
+- Default skin = plain circle (no eyes); all other skins = unique canvas-drawn icon (rotates with snake direction)
+- `drawBodyMark(ctx, x, y, r)` — optional body decoration drawn every 3rd segment
+- Draw loop in `index.html`: if `skin.id !== 'default'`, skip circle+eyes and call `skin.drawHead()` directly
+
+## Lobby UI (public/index.html)
+- **Background canvas** (`#lobbyCanvas`): 2 animated neon snakes (green #19D184 + lime #BFF000) with grid background
+  - Snake 1: 320 segments (long), Snake 2: 160 segments
+  - Snakes avoid each other when within 200px
+  - Grid: 72px cells, rgba(255,255,255,0.035)
+- **? button** bottom-right: CSS hover tooltip with contact info (X/Telegram/Discord)
+- **"Made by nheoweb3"** tag bottom-left
+- Game canvas (`#cvs`) is z-index 1; lobby canvas is z-index 0
+
 ## Key Implementation Notes
 - **Ritual AI is optional:** ritual/ requires `viem` + `ethers`. Server gracefully falls back if not installed.
 - **Sender lock:** Ritual allows only 1 async precompile tx per EOA at a time. deathChronicle.js handles this by chaining LLM → Image → mint sequentially.
@@ -113,3 +149,4 @@ npx hardhat run scripts/deploy.js --network ritual
 - **Viewport culling:** Each client only receives players/food within VIEW_W×VIEW_H of their camera center.
 - **Judge slot:** Private rooms have 1 judge WebSocket — receives unculled full-map state.
 - **Client extrapolation:** Own snake uses mouseAngle for instant response; others use server angle. Both extrapolate position = head + angle * speed * (timeSinceLastTick/TICK_MS).
+- **Public room join guard:** `findBestRoom()` skips rooms with < 240s (4 min) remaining — players queue and wait for next reset.
