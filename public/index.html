@@ -650,7 +650,8 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 // ── Server constants (must match GameRoom.js) ─────────
 const W_WORLD = 8000, H_WORLD = 8000;
 const SPEED      = 5.6;
-const R_MIN      = 20, R_MAX = 44, INIT_LEN = 55, VISUAL_REF = 150;
+const R_MIN      = 12, R_MAX = 44, INIT_LEN = 55;
+const WIDTH_K    = 800;
 const TICK_MS    = 33;
 const COOLDOWN_T = 111;
 
@@ -663,8 +664,8 @@ const FOOD_COLORS = [
 const FOOD_RADII = [3, 5, 7];
 
 function segR(tlen) {
-  const t = Math.min(1, Math.max(0, (tlen - INIT_LEN) / (VISUAL_REF - INIT_LEN)));
-  return R_MIN + Math.sqrt(t) * (R_MAX - R_MIN);
+  const s = Math.max(0, tlen - INIT_LEN);
+  return R_MIN + (R_MAX - R_MIN) * s / (s + WIDTH_K);
 }
 
 // ── State ─────────────────────────────────────────────
@@ -1625,20 +1626,21 @@ setInterval(checkRitualStatus, 30_000);
   resize();
   window.addEventListener('resize', resize);
 
-  const COLORS = ['#19D184', '#BFF000', '#FF1DCE'];
-  const NUM_SEGS = 320;
+  const COLORS = ['#19D184', '#BFF000'];
+  const NUM_SEGS = 160;
   const SEG_DIST = 11;
+  const AVOID_DIST = 180;
 
   const snakes = COLORS.map((color, i) => {
-    const x = (0.15 + i * 0.35) * window.innerWidth;
-    const y = (0.25 + Math.random() * 0.5) * window.innerHeight;
+    const x = (0.25 + i * 0.5) * window.innerWidth;
+    const y = (0.3 + Math.random() * 0.4) * window.innerHeight;
     const angle = Math.random() * Math.PI * 2;
     const segs = [];
     for (let j = 0; j < NUM_SEGS; j++) {
       segs.push({ x: x - Math.cos(angle) * j * SEG_DIST, y: y - Math.sin(angle) * j * SEG_DIST });
     }
-    return { x, y, angle, turnRate: (Math.random() - 0.5) * 0.03,
-             speed: 1.3 + Math.random() * 0.5, color, r: 9 + i * 2, segs };
+    return { x, y, angle, turnRate: (Math.random() - 0.5) * 0.025,
+             speed: 1.2 + Math.random() * 0.4, color, r: 10 + i * 3, segs };
   });
 
   function drawGrid(W, H) {
@@ -1659,7 +1661,21 @@ setInterval(checkRitualStatus, 30_000);
     ctx.fillRect(0, 0, W, H);
     drawGrid(W, H);
 
-    for (const sn of snakes) {
+    for (let si = 0; si < snakes.length; si++) {
+      const sn = snakes[si];
+      // Avoidance: steer away from the other snake's head
+      const other = snakes[1 - si];
+      if (other) {
+        const dx = other.x - sn.x, dy = other.y - sn.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < AVOID_DIST && dist > 0) {
+          const awayAngle = Math.atan2(-dy, -dx);
+          let diff = awayAngle - sn.angle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          sn.turnRate += diff * 0.004 * (1 - dist / AVOID_DIST);
+        }
+      }
       sn.turnRate += (Math.random() - 0.5) * 0.006;
       sn.turnRate = Math.max(-0.04, Math.min(0.04, sn.turnRate));
       sn.angle += sn.turnRate;

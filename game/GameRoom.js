@@ -19,7 +19,8 @@ const SESSION_MS   = 7 * 60 * 1000;
 
 const FOOD_GROWTH = [1.2, 1.99, 6.0];
 const FOOD_RADIUS = [3, 5, 7];
-const R_MIN = 12, R_MAX = 44, VISUAL_REF = 600;
+const R_MIN = 12, R_MAX = 44;
+const WIDTH_K = 800; // hyperbolic growth constant — higher = slower width gain
 
 const COLORS = [
   '#4ade80','#f97316','#3b82f6','#ec4899',
@@ -39,8 +40,8 @@ function angleDiff(a, b) {
   return d;
 }
 function segR(tlen) {
-  const t = Math.min(1, (tlen - INIT_LEN) / (VISUAL_REF - INIT_LEN));
-  return R_MIN + Math.sqrt(t) * (R_MAX - R_MIN);
+  const s = Math.max(0, tlen - INIT_LEN);
+  return R_MIN + (R_MAX - R_MIN) * s / (s + WIDTH_K);
 }
 
 class GameRoom {
