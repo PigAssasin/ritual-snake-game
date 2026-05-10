@@ -19,7 +19,7 @@ const SESSION_MS   = 7 * 60 * 1000;
 
 const FOOD_GROWTH = [1.2, 1.99, 6.0];
 const FOOD_RADIUS = [3, 5, 7];
-const R_MIN = 20, R_MAX = 44, VISUAL_REF = 320;
+const R_MIN = 12, R_MAX = 44, VISUAL_REF = 600;
 
 const COLORS = [
   '#4ade80','#f97316','#3b82f6','#ec4899',

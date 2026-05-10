@@ -1626,8 +1626,8 @@ setInterval(checkRitualStatus, 30_000);
   window.addEventListener('resize', resize);
 
   const COLORS = ['#19D184', '#BFF000', '#FF1DCE'];
-  const NUM_SEGS = 80;
-  const SEG_DIST = 10;
+  const NUM_SEGS = 320;
+  const SEG_DIST = 11;
 
   const snakes = COLORS.map((color, i) => {
     const x = (0.15 + i * 0.35) * window.innerWidth;
@@ -1638,7 +1638,7 @@ setInterval(checkRitualStatus, 30_000);
       segs.push({ x: x - Math.cos(angle) * j * SEG_DIST, y: y - Math.sin(angle) * j * SEG_DIST });
     }
     return { x, y, angle, turnRate: (Math.random() - 0.5) * 0.03,
-             speed: 1.1 + Math.random() * 0.5, color, r: 9 + i * 2, segs };
+             speed: 1.3 + Math.random() * 0.5, color, r: 9 + i * 2, segs };
   });
 
   function drawGrid(W, H) {
@@ -1674,15 +1674,26 @@ setInterval(checkRitualStatus, 30_000);
       if (sn.segs.length > NUM_SEGS) sn.segs.length = NUM_SEGS;
 
       if (sn.segs.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(sn.segs[0].x, sn.segs[0].y);
-      for (let i = 1; i < sn.segs.length; i++) ctx.lineTo(sn.segs[i].x, sn.segs[i].y);
       ctx.lineCap    = 'round';
       ctx.lineJoin   = 'round';
       ctx.lineWidth  = sn.r * 2;
       ctx.strokeStyle = sn.color + '40';
       ctx.shadowColor = sn.color;
       ctx.shadowBlur  = 20;
+      // Draw in segments, breaking path on screen wrap to avoid cross-screen lines
+      ctx.beginPath();
+      ctx.moveTo(sn.segs[0].x, sn.segs[0].y);
+      for (let i = 1; i < sn.segs.length; i++) {
+        const dx = Math.abs(sn.segs[i].x - sn.segs[i-1].x);
+        const dy = Math.abs(sn.segs[i].y - sn.segs[i-1].y);
+        if (dx > W * 0.4 || dy > H * 0.4) {
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(sn.segs[i].x, sn.segs[i].y);
+        } else {
+          ctx.lineTo(sn.segs[i].x, sn.segs[i].y);
+        }
+      }
       ctx.stroke();
       ctx.shadowBlur  = 0;
     }
