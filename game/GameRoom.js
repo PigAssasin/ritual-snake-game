@@ -364,11 +364,12 @@ class GameRoom {
 
     const allPlayers = Object.values(this.players).filter(p => !p.isBot);
     const results = allPlayers.map(p => ({
-      name:    p.name,
-      score:   p.score,
-      kills:   p.kills,
-      deaths:  p.deaths || 0,
-      maxLen:  p.maxLen  || p.segs.length,
+      name:         p.name,
+      score:        p.score,
+      kills:        p.kills,
+      deaths:       p.deaths || 0,
+      maxLen:       p.maxLen  || p.segs.length,
+      walletAddress: p.walletAddress || null,
     })).sort((a, b) => {
       if (this.mode === 'private') {
         return (b.score + b.kills * 10 - b.deaths * 3) -

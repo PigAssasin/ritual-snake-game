@@ -1165,6 +1165,10 @@ function handleMsg(d) {
       applyTournamentChronicle(d);
       break;
 
+    case 'tournament_nft_minted':
+      applyTournamentNftMinted(d);
+      break;
+
     case 'chronicle_committed': {
       const btn = document.getElementById('chr-commit-btn');
       if (btn) { btn.textContent = '✓ Chronicle Committed'; btn.disabled = true; }
@@ -1292,6 +1296,18 @@ function showNftCard(stats, rank, playerCount, roomId) {
 
   // If chronicle already arrived before card showed, apply it now
   if (_latestChronicle) applyChronicle(_latestChronicle);
+}
+
+function applyTournamentNftMinted(d) {
+  showToast(`⬡ Tournament NFT #${d.tokenId} minted! ${d.rank}`);
+  const body = document.getElementById('chr-body');
+  if (body) {
+    const el = document.createElement('div');
+    el.style.cssText = 'margin-top:10px;padding:10px 14px;background:rgba(191,240,0,.07);border:1px solid rgba(191,240,0,.35);border-radius:8px;font-family:var(--fm);font-size:11px;color:#BFF000;letter-spacing:.03em';
+    el.innerHTML = `⬡ &nbsp;<b>${d.rank}</b> &nbsp;— Tournament NFT <b>#${d.tokenId}</b> minted to your wallet`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
 }
 
 function applyChronicleTokenId(tokenId) {

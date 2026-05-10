@@ -9,9 +9,16 @@ const SNAKE_GAME_ABI = [
   'function sessionCount() external view returns (uint256)',
 ];
 
+const CHRONICLE_NFT_ABI = [
+  'function mint(address to, string name, uint256 score, uint256 kills, uint256 length, string killedBy, string epitaph, string portraitUri) external returns (uint256)',
+];
+
+const RANK_LABELS = ['#1 CHAMPION', '#2 RUNNER-UP', '#3 BRONZE'];
+
 async function generateTournamentChronicle(sessionData, room = null) {
-  const privateKey   = process.env.PRIVATE_KEY;
-  const contractAddr = process.env.CONTRACT_ADDRESS;
+  const privateKey       = process.env.PRIVATE_KEY;
+  const contractAddr     = process.env.CONTRACT_ADDRESS;
+  const chronicleNftAddr = process.env.CHRONICLE_NFT_ADDRESS;
 
   if (room) {
     room._broadcastAll({ t: 'chronicle_pending', msg: 'RITUAL AI IS WRITING THE CHRONICLE...' });
@@ -43,7 +50,74 @@ async function generateTournamentChronicle(sessionData, room = null) {
   if (room) {
     room._broadcastAll({ t: 'tournament_chronicle', chronicle, results: sessionData.results, winner: sessionData.winner });
   }
+
+  // Mint NFTs for top 3 players who have a connected wallet
+  if (chronicleNftAddr) {
+    const top3 = sessionData.results.slice(0, 3).filter(r => r.walletAddress);
+    if (top3.length) {
+      _mintTop3NFTs(top3, chronicle, sessionData, room, chronicleNftAddr);
+    }
+  }
+
   return chronicle;
+}
+
+// ── Top 3 NFT minting ─────────────────────────────────────────────────────────
+
+async function _mintTop3NFTs(top3, chronicle, sessionData, room, contractAddr) {
+  const epitaph = chronicle.slice(0, 300);
+  for (let i = 0; i < top3.length; i++) {
+    const player = top3[i];
+    const rank   = RANK_LABELS[i];
+    try {
+      const tokenId = await _mintTournamentNFT(player, rank, epitaph, sessionData, contractAddr);
+      console.log(`[tournamentChronicle] minted tournament NFT #${tokenId} → ${player.name} (${rank})`);
+      const ws = _findPlayerWs(room, player.name);
+      if (ws?.readyState === 1) {
+        ws.send(JSON.stringify({ t: 'tournament_nft_minted', tokenId, rank, playerName: player.name }));
+      }
+    } catch (err) {
+      console.error(`[tournamentChronicle] mint failed for ${player.name} (${rank}):`, err.message);
+    }
+  }
+}
+
+async function _mintTournamentNFT(player, rank, chronicle, sessionData, contractAddr) {
+  const pk       = process.env.PRIVATE_KEY;
+  const provider = new ethers.JsonRpcProvider(process.env.RITUAL_RPC_URL || 'https://rpc.ritualfoundation.org');
+  const signer   = new ethers.Wallet(pk.startsWith('0x') ? pk : `0x${pk}`, provider);
+  const contract = new ethers.Contract(contractAddr, CHRONICLE_NFT_ABI, signer);
+
+  const tx = await contract.mint(
+    player.walletAddress,
+    player.name,
+    BigInt(player.score),
+    BigInt(player.kills),
+    BigInt(player.maxLen || 0),
+    `Tournament ${rank} — ${sessionData.roomId}`,
+    chronicle,
+    '',
+  );
+  const receipt = await tx.wait();
+
+  const iface = new ethers.Interface([
+    'event ChroniclesMinted(uint256 indexed tokenId, address indexed player, string playerName)',
+  ]);
+  for (const log of receipt.logs) {
+    try {
+      const p = iface.parseLog(log);
+      if (p) return p.args.tokenId.toString();
+    } catch (_) {}
+  }
+  return null;
+}
+
+function _findPlayerWs(room, name) {
+  if (!room?.players || !room?.wsMap) return null;
+  for (const [id, p] of Object.entries(room.players)) {
+    if (p.name === name) return room.wsMap.get(id) || null;
+  }
+  return null;
 }
 
 // ── LLM via Ritual HTTP precompile with direct fallback ───────────────────────
@@ -64,7 +138,6 @@ async function _callLLM(data) {
     },
   ];
 
-  // Try Ritual HTTP precompile first
   try {
     const { callDeepSeekLLM } = require('./httpPrecompile');
     const result = await callDeepSeekLLM(messages, 300);
@@ -74,7 +147,6 @@ async function _callLLM(data) {
     console.warn('[tournamentChronicle] HTTP precompile failed, using direct fetch:', err.message);
   }
 
-  // Fallback: direct DeepSeek
   return _callLLMDirect(messages);
 }
 
