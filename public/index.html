@@ -1133,7 +1133,7 @@ function showNftCard(stats, rank, playerCount, roomId) {
     mintBtn.disabled = false;
     mintBtn.style.display = '';
   }
-  document.getElementById('nft-lobby-btn').style.display = 'none';
+  document.getElementById('nft-lobby-btn').style.display = '';
 
   showScreen('nft-card');
 
@@ -1180,7 +1180,7 @@ function applyChronicle(data) {
           const a = document.createElement('a');
           a.id = 'nft-view-link';
           a.className = 'nft-view-btn';
-          a.href = `https://explorer.ritualfoundation.org/token/${window.CHRONICLE_NFT_ADDRESS}/instance/${data.tokenId}`;
+          a.href = `https://explorer.ritualfoundation.org/address/${window.CHRONICLE_NFT_ADDRESS}`;
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
           a.innerHTML = '⬡ View NFT #' + data.tokenId + ' →';
@@ -1199,15 +1199,24 @@ function applyChronicle(data) {
     }
   }
 
-  // Always show Back to Lobby once chronicle is resolved
-  document.getElementById('nft-lobby-btn').style.display = '';
+  if (data.tokenId) showNftNotif(data);
+}
 
-  const toastMsg = data.tokenId
-    ? '⬡ Death Chronicle minted as NFT #' + data.tokenId
-    : data.epitaph
-      ? '⬡ Death Chronicle ready'
-      : null;
-  if (toastMsg) showToast(toastMsg);
+let _nftNotifTimer = null;
+function showNftNotif(data) {
+  const notif = document.getElementById('nft-notif');
+  const text  = document.getElementById('nft-notif-text');
+  const link  = document.getElementById('nft-notif-link');
+  if (!notif) return;
+  const name = data.stats?.name || 'Your snake';
+  text.textContent = name + ' · NFT #' + data.tokenId + ' minted on Ritual Chain 1979';
+  link.href = `https://explorer.ritualfoundation.org/address/${window.CHRONICLE_NFT_ADDRESS}`;
+  notif.style.display = 'block';
+  notif.style.animation = 'none';
+  void notif.offsetWidth; // reflow to restart animation
+  notif.style.animation = '';
+  clearTimeout(_nftNotifTimer);
+  _nftNotifTimer = setTimeout(() => { notif.style.display = 'none'; }, 8000);
 }
 
 function drawNftPortrait() {
@@ -1914,6 +1923,18 @@ window.SNAKE_GAME_ADDRESS     = '0xC30e2D0a12aD53cbE72c9545B1d8aDC1Eef130Fc';
 </script>
 
 <!-- ═══ WALLET MODAL ════════════════════════════════════ -->
+<!-- ═══ NFT NOTIFICATION (right-side, any screen) ════════ -->
+<div id="nft-notif" style="display:none;position:fixed;right:20px;bottom:80px;z-index:2000;width:290px;background:#0d1a0e;border:1px solid rgba(25,209,132,.45);border-radius:12px;padding:14px 16px;box-shadow:0 4px 24px rgba(25,209,132,.12);animation:notif-in .35s cubic-bezier(.22,1,.36,1)">
+  <style>@keyframes notif-in{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}</style>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <span style="color:#19D184;font-size:15px">⬡</span>
+    <span style="font-family:'Archivo Black',sans-serif;font-size:12px;color:#F3F4F6;flex:1">Death Chronicle NFT</span>
+    <button onclick="document.getElementById('nft-notif').style.display='none'" style="background:none;border:none;color:#6B7280;cursor:pointer;font-size:14px;line-height:1;padding:0">✕</button>
+  </div>
+  <div id="nft-notif-text" style="font-size:11px;color:#9CA3AF;line-height:1.55;margin-bottom:10px"></div>
+  <a id="nft-notif-link" href="#" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#19D184;text-decoration:none;border:1px solid rgba(25,209,132,.3);border-radius:6px;padding:5px 10px;transition:background .15s" onmouseover="this.style.background='rgba(25,209,132,.1)'" onmouseout="this.style.background='transparent'">View NFT on Explorer →</a>
+</div>
+
 <div id="wallet-modal" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center">
   <div style="background:#111827;border:1px solid #374151;border-radius:16px;padding:28px;width:100%;max-width:360px;position:relative">
     <div style="height:3px;background:linear-gradient(to right,#19D184,rgba(25,209,132,.2),transparent);border-radius:3px 3px 0 0;margin:-28px -28px 24px"></div>
