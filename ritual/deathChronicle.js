@@ -117,16 +117,20 @@ let _pendingNonce  = null;
 let _nonceLoading  = false;
 
 async function _getNextNonce(provider, address) {
-  // Lazy init: fetch once from chain, then increment locally
+  // Always re-check chain nonce and take MAX(chain, local).
+  // Needed because httpPrecompile.js TXs (same EOA) advance the chain nonce
+  // without updating this counter, causing "nonce too low" on subsequent mints.
   while (_nonceLoading) await new Promise(r => setTimeout(r, 30));
-  if (_pendingNonce === null) {
-    _nonceLoading  = true;
-    _pendingNonce  = await provider.getTransactionCount(address, 'pending');
-    _nonceLoading  = false;
+  _nonceLoading = true;
+  try {
+    const chainNonce = await provider.getTransactionCount(address, 'pending');
+    if (_pendingNonce === null || chainNonce > _pendingNonce) {
+      _pendingNonce = chainNonce;
+    }
+    return _pendingNonce++;
+  } finally {
+    _nonceLoading = false;
   }
-  const nonce = _pendingNonce;
-  _pendingNonce++;
-  return nonce;
 }
 
 async function _mintNFTParallel(stats, epitaph, portraitUri, contractAddr) {
