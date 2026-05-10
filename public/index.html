@@ -357,9 +357,6 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
   <nav class="l-nav">
     <div class="l-logo">Ritual<span>Snake</span></div>
     <div class="l-nav-right">
-      <div id="ritual-badge" class="ritual-badge">
-        <span class="ritual-dot"></span>Ritual · <span id="ritual-status-text">Checking</span>
-      </div>
       <button class="mkt-nav-btn" onclick="openSkinMarket()">◆ Skins</button>
       <div class="w-wrap">
         <button class="wbtn" id="wbtn" onclick="toggleWallet()">
@@ -368,7 +365,7 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
         </button>
         <div class="w-dropdown" id="w-dropdown">
           <div class="w-addr"><div class="w-addr-label">Connected Wallet</div><div class="w-addr-val" id="w-addr-val">—</div></div>
-          <div class="w-balance"><span class="w-bal-label">Balance</span><span class="w-bal-val">0.00 RTL</span></div>
+          <div class="w-balance"><span class="w-bal-label">Balance</span><span class="w-bal-val" id="w-bal-val">—</span></div>
           <button class="w-disc" onclick="disconnectWallet()">✕ &nbsp;Disconnect</button>
         </div>
       </div>
@@ -403,6 +400,13 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
     </div>
   </div>
   <div class="lobby-made-by">Made by nheoweb3</div>
+  <!-- Ritual status + Add Network — bottom left above ? -->
+  <div style="position:fixed;bottom:52px;left:20px;z-index:100;display:flex;flex-direction:column;gap:7px;align-items:flex-start">
+    <button onclick="addRitualNetwork()" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border:1px solid rgba(25,209,132,.35);border-radius:20px;background:rgba(10,10,10,.7);color:rgba(25,209,132,.8);font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;backdrop-filter:blur(4px);transition:all .2s" onmouseover="this.style.borderColor='#19D184';this.style.color='#19D184'" onmouseout="this.style.borderColor='rgba(25,209,132,.35)';this.style.color='rgba(25,209,132,.8)'">+ Add Ritual Testnet</button>
+    <div id="ritual-badge" class="ritual-badge">
+      <span class="ritual-dot"></span>Ritual · <span id="ritual-status-text">Checking</span>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ PRIVATE CREATE ═══════════════════════════════════ -->
@@ -754,15 +758,52 @@ function _setWallet(addr) {
   const btn    = document.getElementById('wbtn-text');
   const chev   = document.getElementById('wchev');
   const addrEl = document.getElementById('w-addr-val');
+  const balEl  = document.getElementById('w-bal-val');
   if (addr) {
     btn.textContent = addr.slice(0, 6) + '...' + addr.slice(-4);
     if (chev)   chev.style.display = '';
     if (addrEl) addrEl.textContent = addr.slice(0, 18) + '...';
+    if (balEl)  balEl.textContent  = 'Loading...';
+    fetchBalance(addr);
     loadSkin();
   } else {
     btn.textContent = 'Connect Wallet';
-    if (chev) chev.style.display = 'none';
+    if (chev)  chev.style.display = 'none';
+    if (balEl) balEl.textContent  = '—';
     document.getElementById('w-dropdown').classList.remove('open');
+  }
+}
+
+async function fetchBalance(addr) {
+  try {
+    const provider = new ethers.JsonRpcProvider('https://rpc.ritualfoundation.org');
+    const wei = await provider.getBalance(addr);
+    const bal = parseFloat(ethers.formatEther(wei)).toFixed(4);
+    const el = document.getElementById('w-bal-val');
+    if (el) el.textContent = bal + ' RITUAL';
+  } catch (_) {
+    const el = document.getElementById('w-bal-val');
+    if (el) el.textContent = '— RITUAL';
+  }
+}
+
+async function addRitualNetwork() {
+  const provider = window.okxwallet || window.ethereum;
+  if (!provider) { showToast('No wallet detected'); return; }
+  try {
+    await provider.request({
+      method: 'wallet_addEthereumChain',
+      params: [{
+        chainId: '0x7BB',  // 1979 in hex
+        chainName: 'Ritual Testnet',
+        nativeCurrency: { name: 'RITUAL', symbol: 'RITUAL', decimals: 18 },
+        rpcUrls: ['https://rpc.ritualfoundation.org'],
+        blockExplorerUrls: ['https://explorer.ritualfoundation.org'],
+      }],
+    });
+    showToast('✓ Ritual Testnet added');
+  } catch (e) {
+    showToast(e.message?.slice(0, 60) || 'Failed to add network');
   }
 }
 
