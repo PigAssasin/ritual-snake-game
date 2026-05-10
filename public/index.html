@@ -24,6 +24,15 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 
 /* ── LOBBY ────────────────────────────────────────────── */
 #screen-lobby{background:var(--bg0);position:relative;overflow:hidden;align-items:stretch}
+#lobbyCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.lobby-help-btn{position:fixed;bottom:18px;right:20px;z-index:100;width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(17,24,39,.7);color:rgba(255,255,255,.5);font-size:11px;font-family:var(--fm);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;backdrop-filter:blur(4px)}
+.lobby-help-btn:hover{border-color:var(--green);color:var(--green)}
+.lobby-help-tooltip{position:fixed;bottom:46px;right:20px;z-index:101;background:rgba(10,10,10,.95);border:1px solid rgba(25,209,132,.25);border-radius:10px;padding:14px 16px;min-width:220px;font-size:12px;color:rgba(255,255,255,.7);line-height:1.7;display:none;backdrop-filter:blur(8px)}
+.lobby-help-tooltip.show{display:block}
+.lobby-help-tooltip strong{color:var(--green);display:block;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.lobby-help-tooltip a{color:var(--g4);text-decoration:none}
+.lobby-help-tooltip a:hover{color:var(--green)}
+.lobby-made-by{position:fixed;bottom:20px;left:20px;z-index:100;font-size:10px;color:rgba(255,255,255,.22);font-family:var(--fm);letter-spacing:.04em;pointer-events:none}
 .l-mesh{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 60% 50% at 30% 40%,rgba(25,209,132,.07) 0%,transparent 65%),radial-gradient(ellipse 50% 40% at 75% 65%,rgba(255,29,206,.05) 0%,transparent 65%)}
 .l-grain{position:absolute;inset:0;pointer-events:none;opacity:.02;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 .l-nav{position:relative;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:18px 48px;border-bottom:1px solid rgba(255,255,255,.04)}
@@ -343,6 +352,7 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 
 <!-- ═══ LOBBY ════════════════════════════════════════════ -->
 <div class="screen active" id="screen-lobby">
+  <canvas id="lobbyCanvas"></canvas>
   <div class="l-mesh"></div><div class="l-grain"></div>
   <nav class="l-nav">
     <div class="l-logo">Ritual<span>Snake</span></div>
@@ -381,6 +391,16 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
       <div class="ls"><span class="ls-l">Top Score</span><span class="ls-v" style="color:var(--gold)">38,290</span></div>
     </div>
   </div>
+  <!-- Help button -->
+  <button class="lobby-help-btn" id="helpBtn" onclick="toggleHelp()">?</button>
+  <div class="lobby-help-tooltip" id="helpTooltip">
+    <strong>⚠ Experimental dApp</strong>
+    This dApp is built for testing purposes.<br>Found a bug? Reach out:<br>
+    X: <a href="https://x.com/nheoweb3" target="_blank">@nheoweb3</a><br>
+    Telegram: <a href="https://t.me/nheofour" target="_blank">@nheofour</a><br>
+    Discord: <span style="color:var(--g4)">nheoweb3</span>
+  </div>
+  <div class="lobby-made-by">Made by nheoweb3</div>
 </div>
 
 <!-- ═══ PRIVATE CREATE ═══════════════════════════════════ -->
@@ -1322,8 +1342,7 @@ function stopRenderLoop() {
 function render() {
   const W = canvas.width, H = canvas.height;
 
-  ctx.fillStyle = '#020202';
-  ctx.fillRect(0, 0, W, H);
+  ctx.clearRect(0, 0, W, H);
 
   if (!gameState || !myId) {
     ctx.font      = '13px "JetBrains Mono", monospace';
@@ -1591,6 +1610,84 @@ setInterval(checkRitualStatus, 30_000);
 <script src="/skins.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
 <script>
+// ── Lobby help tooltip ──────────────────────────────────
+function toggleHelp() {
+  const t = document.getElementById('helpTooltip');
+  t && t.classList.toggle('show');
+}
+document.addEventListener('click', function(e) {
+  const btn = document.getElementById('helpBtn');
+  const tip = document.getElementById('helpTooltip');
+  if (tip && btn && !btn.contains(e.target) && !tip.contains(e.target)) {
+    tip.classList.remove('show');
+  }
+});
+
+// ── Lobby animated snakes ───────────────────────────────
+(function () {
+  const cv = document.getElementById('lobbyCanvas');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+
+  function resize() {
+    cv.width  = cv.offsetWidth  || window.innerWidth;
+    cv.height = cv.offsetHeight || window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const COLORS = ['#19D184', '#BFF000', '#FF1DCE'];
+  const NUM_SEGS = 35;
+
+  const snakes = COLORS.map((color, i) => {
+    const x = (0.2 + i * 0.3) * window.innerWidth;
+    const y = (0.3 + Math.random() * 0.4) * window.innerHeight;
+    const angle = Math.random() * Math.PI * 2;
+    const segs = [];
+    for (let j = 0; j < NUM_SEGS; j++) {
+      segs.push({ x: x - Math.cos(angle) * j * 10, y: y - Math.sin(angle) * j * 10 });
+    }
+    return { x, y, angle, turnRate: (Math.random() - 0.5) * 0.03,
+             speed: 1.0 + Math.random() * 0.6, color, r: 8 + i * 2, segs };
+  });
+
+  function tick() {
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+
+    for (const sn of snakes) {
+      sn.turnRate += (Math.random() - 0.5) * 0.006;
+      sn.turnRate = Math.max(-0.045, Math.min(0.045, sn.turnRate));
+      sn.angle += sn.turnRate;
+      sn.x += Math.cos(sn.angle) * sn.speed;
+      sn.y += Math.sin(sn.angle) * sn.speed;
+      if (sn.x < -80) sn.x = W + 80;
+      if (sn.x > W + 80) sn.x = -80;
+      if (sn.y < -80) sn.y = H + 80;
+      if (sn.y > H + 80) sn.y = -80;
+
+      sn.segs.unshift({ x: sn.x, y: sn.y });
+      if (sn.segs.length > NUM_SEGS) sn.segs.length = NUM_SEGS;
+
+      if (sn.segs.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(sn.segs[0].x, sn.segs[0].y);
+      for (let i = 1; i < sn.segs.length; i++) ctx.lineTo(sn.segs[i].x, sn.segs[i].y);
+      ctx.lineCap    = 'round';
+      ctx.lineJoin   = 'round';
+      ctx.lineWidth  = sn.r * 2;
+      ctx.strokeStyle = sn.color + '33';
+      ctx.shadowColor = sn.color;
+      ctx.shadowBlur  = 18;
+      ctx.stroke();
+      ctx.shadowBlur  = 0;
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+
+// ── Game background canvas ──────────────────────────────
 (function () {
   const bgCanvas = document.getElementById('bgCanvas');
   if (!bgCanvas) return;
