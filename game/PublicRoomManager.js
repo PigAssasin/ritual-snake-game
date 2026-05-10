@@ -43,10 +43,9 @@ class PublicRoomManager {
     return best;
   }
 
-  addToQueue(ws, name, skin, onAssigned) {
-    // Remove stale entries for this ws first
+  addToQueue(ws, name, skin, walletAddress, onAssigned) {
     this._queue = this._queue.filter(e => e.ws !== ws);
-    this._queue.push({ ws, name, skin, onAssigned });
+    this._queue.push({ ws, name, skin, walletAddress: walletAddress || null, onAssigned });
     const position = this._queue.length;
     const nextRoomIn = this._getNextResetMs();
     ws.send(JSON.stringify({ t: 'queued', position, nextRoomIn }));
@@ -74,10 +73,10 @@ class PublicRoomManager {
     if (!best) return;
     const slots = best.maxPlayers - best.humanCount();
     const toAdd = this._queue.splice(0, slots);
-    for (const { ws, name, skin, onAssigned } of toAdd) {
+    for (const { ws, name, skin, walletAddress, onAssigned } of toAdd) {
       if (ws.readyState !== 1) continue;
-      const pid = best.addPlayer(ws, name, 0, skin);
-      if (!pid) { this._queue.unshift({ ws, name, skin, onAssigned }); break; }
+      const pid = best.addPlayer(ws, name, 0, skin, walletAddress || null);
+      if (!pid) { this._queue.unshift({ ws, name, skin, walletAddress, onAssigned }); break; }
       onAssigned(best, pid);
     }
     // Update remaining queue positions

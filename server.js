@@ -69,17 +69,18 @@ wss.on('connection', ws => {
 
       // ── JOIN PUBLIC ROOM ──
       if (d.t === 'join_public') {
-        const name = (d.n || 'Snake').slice(0, 16);
-        const skin = d.skin || 'default';
+        const name          = (d.n || 'Snake').slice(0, 16);
+        const skin          = d.skin || 'default';
+        const walletAddress = d.walletAddress || null;
         const room = publicRooms.findBestRoom();
         if (!room) {
-          publicRooms.addToQueue(ws, name, skin, (assignedRoom, pid) => {
+          publicRooms.addToQueue(ws, name, skin, walletAddress, (assignedRoom, pid) => {
             state.roomId   = assignedRoom.id;
             state.playerId = pid;
           });
           return;
         }
-        const pid = room.addPlayer(ws, name, 0, skin);
+        const pid = room.addPlayer(ws, name, 0, skin, walletAddress);
         if (!pid) { ws.send(JSON.stringify({ t: 'error', msg: 'Room full' })); return; }
         state.roomId   = room.id;
         state.playerId = pid;
@@ -107,7 +108,7 @@ wss.on('connection', ws => {
           onSessionEnd,
         });
         privateRooms.set(roomId, room);
-        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), 0, skin);
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), 0, skin, d.walletAddress || null);
         state.roomId   = roomId;
         state.playerId = pid;
         return;
@@ -128,7 +129,7 @@ wss.on('connection', ws => {
           state.isJudge = true;
           return;
         }
-        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), 0, d.skin || 'default');
+        const pid = room.addPlayer(ws, (d.n || 'Snake').slice(0, 16), 0, d.skin || 'default', d.walletAddress || null);
         if (!pid) { ws.send(JSON.stringify({ t: 'error', msg: 'Room full' })); return; }
         state.roomId   = d.roomId;
         state.playerId = pid;

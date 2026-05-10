@@ -129,7 +129,7 @@ class GameRoom {
     clearTimeout(this._tickTimer);
   }
 
-  addPlayer(ws, name, headType, skin = 'default') {
+  addPlayer(ws, name, headType, skin = 'default', walletAddress = null) {
     if (this.isFull()) return null;
     const id = String(this._nextPlayerId++);
     this.wsMap.set(id, ws);
@@ -149,6 +149,7 @@ class GameRoom {
     }
 
     this.players[id] = this._mkSnake(name, COLORS[this._colIdx++ % COLORS.length], false, headType, skin);
+    this.players[id].walletAddress = walletAddress;
     ws.send(JSON.stringify({ t: 'ok', id, roomId: this.id, mode: this.mode }));
     // 3s countdown for public rooms
     let sec = 3;
@@ -318,12 +319,13 @@ class GameRoom {
       ? killedBy
       : (this.players[killedBy]?.name || 'unknown');
     const stats = {
-      playerId: id,
-      name:     p.name,
-      score:    p.score,
-      kills:    p.kills,
-      length:   p.segs.length,
-      killedBy: killerName,
+      playerId:      id,
+      name:          p.name,
+      score:         p.score,
+      kills:         p.kills,
+      length:        p.segs.length,
+      killedBy:      killerName,
+      walletAddress: p.walletAddress || null,
     };
 
     this._broadcastAll({

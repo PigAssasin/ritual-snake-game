@@ -746,8 +746,9 @@ async function checkRitualStatus() {
   }
 }
 
-// ── Wallet (stub — real connect via EIP-1193 later) ───
+// ── Wallet (Privy multi-wallet) ───────────────────────
 let walletAddr = null;
+
 function toggleWallet() {
   if (walletAddr) {
     document.getElementById('w-dropdown').classList.toggle('open');
@@ -755,24 +756,33 @@ function toggleWallet() {
     connectWallet();
   }
 }
+
 async function connectWallet() {
-  if (!window.ethereum) { showToast('No wallet detected — install MetaMask'); return; }
-  try {
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    walletAddr = accounts[0];
-    loadSkin();
-    const short = walletAddr.slice(0, 6) + '...' + walletAddr.slice(-4);
-    document.getElementById('wbtn-text').textContent = short;
-    document.getElementById('wchev').style.display = '';
-    document.getElementById('w-addr-val').textContent = walletAddr.slice(0, 18) + '...';
-  } catch (e) { showToast('Wallet connection cancelled'); }
+  if (!window._privy) { showToast('Wallet SDK loading — try again in a moment'); return; }
+  try { await window._privy.login(); } catch (e) { /* dismissed */ }
 }
+
 function disconnectWallet() {
-  walletAddr = null;
-  document.getElementById('wbtn-text').textContent = 'Connect Wallet';
-  document.getElementById('wchev').style.display = 'none';
-  document.getElementById('w-dropdown').classList.remove('open');
+  if (window._privy) window._privy.logout();
 }
+
+window.addEventListener('walletchange', ({ detail: { addr } }) => {
+  walletAddr = addr;
+  const btn    = document.getElementById('wbtn-text');
+  const chev   = document.getElementById('wchev');
+  const addrEl = document.getElementById('w-addr-val');
+  if (addr) {
+    btn.textContent = addr.slice(0, 6) + '...' + addr.slice(-4);
+    if (chev)   chev.style.display = '';
+    if (addrEl) addrEl.textContent = addr.slice(0, 18) + '...';
+    loadSkin();
+  } else {
+    btn.textContent = 'Connect Wallet';
+    if (chev) chev.style.display = 'none';
+    document.getElementById('w-dropdown').classList.remove('open');
+  }
+});
+
 document.addEventListener('click', e => {
   if (!e.target.closest('.w-wrap')) document.getElementById('w-dropdown').classList.remove('open');
 });
@@ -906,7 +916,8 @@ function handleMsg(d) {
 
 // ── Lobby actions ─────────────────────────────────────
 function joinPublic() {
-  connect(() => send({ t: 'join_public', n: getName(), skin: selectedSkin || 'default' }));
+  _latestChronicle = null;
+  connect(() => send({ t: 'join_public', n: getName(), skin: selectedSkin || 'default', walletAddress: walletAddr || null }));
 }
 
 function selDur(d, el) {
@@ -916,16 +927,18 @@ function selDur(d, el) {
 }
 
 function createPrivate() {
+  _latestChronicle = null;
   const pass = document.getElementById('prv-pass').value.trim();
-  connect(() => send({ t: 'create_private', n: getName(), pass, skin: selectedSkin || 'default' }));
+  connect(() => send({ t: 'create_private', n: getName(), pass, skin: selectedSkin || 'default', walletAddress: walletAddr || null }));
 }
 
 function joinPrivate() {
+  _latestChronicle = null;
   const roomId = document.getElementById('join-room-id').value.trim();
   const pass   = document.getElementById('join-room-pass').value.trim();
   if (!roomId) { showToast('Enter a room ID'); return; }
   hideJoinModal();
-  connect(() => send({ t: 'join_private', roomId, pass, n: getName(), skin: selectedSkin || 'default' }));
+  connect(() => send({ t: 'join_private', roomId, pass, n: getName(), skin: selectedSkin || 'default', walletAddress: walletAddr || null }));
 }
 
 function hostStart() {
@@ -1612,6 +1625,12 @@ setInterval(checkRitualStatus, 30_000);
 </script>
 <script src="/skins.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<script>
+window.PRIVY_APP_ID           = 'cmozitpfp01h70cl8f3k25u2y';
+window.CHRONICLE_NFT_ADDRESS  = '0x173fC3eCFA8407045Bc6D924fb54c95A5348811f';
+window.SNAKE_GAME_ADDRESS     = '0xC30e2D0a12aD53cbE72c9545B1d8aDC1Eef130Fc';
+</script>
+<script src="/wallet-bundle.js" defer></script>
 <script>
 // ── Lobby animated snakes + grid background ─────────────
 (function () {
