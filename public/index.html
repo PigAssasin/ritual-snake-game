@@ -1199,6 +1199,9 @@ function applyChronicle(data) {
     }
   }
 
+  // Always show Back to Lobby once chronicle is resolved
+  document.getElementById('nft-lobby-btn').style.display = '';
+
   const toastMsg = data.tokenId
     ? '⬡ Death Chronicle minted as NFT #' + data.tokenId
     : data.epitaph

@@ -1,17 +1,5 @@
 'use strict';
 
-/**
- * deathChronicle.js — Ritual LLM + Image precompile
- *
- * Flow:
- *   1. Call Ritual LLM precompile (0x0802) → epitaph text (2 sentences)
- *   2. Call Ritual Image precompile (0x0818) → portrait (base64 PNG)
- *   3. Mint ChronicleNFT via ChronicleNFT.sol
- *
- * All steps are async and run in background after player elimination.
- * Player gets a WS notification when NFT is ready.
- */
-
 const {
   createPublicClient,
   createWalletClient,
@@ -19,12 +7,14 @@ const {
   defineChain,
   encodeAbiParameters,
   decodeAbiParameters,
+  parseAbiParameters,
+  keccak256,
+  toHex,
 } = require('viem');
 const { privateKeyToAccount } = require('viem/accounts');
 const { ethers } = require('ethers');
 require('dotenv').config();
 
-// ── Ritual Chain definition ──────────────────────────────────────────────────
 const ritualChain = defineChain({
   id: 1979,
   name: 'Ritual',
@@ -32,13 +22,10 @@ const ritualChain = defineChain({
   rpcUrls: { default: { http: [process.env.RITUAL_RPC_URL || 'https://rpc.ritualfoundation.org'] } },
 });
 
-// ── Contract addresses ───────────────────────────────────────────────────────
 const LLM_PRECOMPILE   = '0x0000000000000000000000000000000000000802';
-const IMAGE_PRECOMPILE = '0x0000000000000000000000000000000000000818';
 const TEE_REGISTRY     = '0x9644e8562cE0Fe12b4deeC4163c064A8862Bf47F';
 const RITUAL_WALLET    = '0x532F0dF0896F353d8C3DD8cc134e8129DA2a3948';
 
-// ── ABIs ─────────────────────────────────────────────────────────────────────
 const TEE_REGISTRY_ABI = [{
   inputs: [
     { name: 'capability', type: 'uint8' },
@@ -80,16 +67,17 @@ const CHRONICLE_NFT_ABI = [
   'function mint(address to, string name, uint256 score, uint256 kills, uint256 length, string killedBy, string epitaph, string portraitUri) external returns (uint256)',
 ];
 
-// ── Main export ──────────────────────────────────────────────────────────────
+// 30-field LLM ABI (ritual-dapp-llm skill — must match exactly or RPC rejects)
+const LLM_ABI = [
+  'address, bytes[], uint256, bytes[], bytes,',
+  'string, string, int256, string, bool, int256, string, string,',
+  'uint256, bool, int256, string, bytes, int256, string, string, bool,',
+  'int256, bytes, bytes, int256, int256, string, bool,',
+  '(string,string,string)',
+].join('');
 
-/**
- * Generate Death Chronicle for an eliminated player.
- * Returns { tokenId, epitaph, portraitUri } or null on failure.
- *
- * @param {object} stats
- *   { playerId, name, score, kills, length, killedBy, walletAddress? }
- * @param {WebSocket|null} playerWs  — WS to notify when done (optional)
- */
+const PRECOMPILE_CALLED_TOPIC = keccak256(toHex('PrecompileCalled(address,bytes,bytes)'));
+
 async function generateDeathChronicle(stats, playerWs = null) {
   const privateKey       = process.env.PRIVATE_KEY;
   const chronicleNftAddr = process.env.CHRONICLE_NFT_ADDRESS;
@@ -104,44 +92,32 @@ async function generateDeathChronicle(stats, playerWs = null) {
   const walletClient = createWalletClient({ account, chain: ritualChain, transport: http() });
 
   try {
-    // Step 1: Ensure RitualWallet has enough balance
     await _ensureWalletDeposit(publicClient, walletClient, account.address);
 
-    // Step 2: Get LLM executor
-    const executor = await _getExecutor(publicClient, 1);
+    const executor = await _getExecutor(publicClient);
     if (!executor) throw new Error('No LLM executor available');
+    console.log(`[deathChronicle] Using executor: ${executor}`);
 
-    // Step 3: Generate epitaph via LLM precompile
     const epitaph = await _callLLM(walletClient, publicClient, executor, stats);
     console.log(`[deathChronicle] Epitaph: "${epitaph}"`);
 
-    // Step 4: Generate portrait via Image precompile
-    const portraitUri = await _callImage(walletClient, publicClient, executor, stats, epitaph);
-    console.log(`[deathChronicle] Portrait generated: ${portraitUri ? 'yes' : 'no'}`);
+    // Portrait: Image precompile has different ABI — skip for now, use null
+    const portraitUri = null;
 
-    // Step 5: Mint NFT (if contract is deployed and player has a wallet)
     let tokenId = null;
     if (chronicleNftAddr && stats.walletAddress) {
       tokenId = await _mintNFT(stats, epitaph, portraitUri || '', chronicleNftAddr);
       console.log(`[deathChronicle] NFT minted: tokenId=${tokenId}`);
     }
 
-    // Step 6: Notify player via WebSocket
     if (playerWs?.readyState === 1) {
-      playerWs.send(JSON.stringify({
-        t: 'chronicle_ready',
-        epitaph,
-        portraitUri,
-        tokenId,
-        stats,
-      }));
+      playerWs.send(JSON.stringify({ t: 'chronicle_ready', epitaph, portraitUri, tokenId, stats }));
     }
 
     return { tokenId, epitaph, portraitUri };
 
   } catch (err) {
     console.error('[deathChronicle] Error:', err.message);
-    // Still notify player with whatever we have (fallback epitaph)
     const fallback = _fallbackEpitaph(stats);
     if (playerWs?.readyState === 1) {
       playerWs.send(JSON.stringify({ t: 'chronicle_ready', epitaph: fallback, portraitUri: null, tokenId: null, stats }));
@@ -150,8 +126,6 @@ async function generateDeathChronicle(stats, playerWs = null) {
   }
 }
 
-// ── Internal helpers ─────────────────────────────────────────────────────────
-
 async function _ensureWalletDeposit(publicClient, walletClient, address) {
   const balance = await publicClient.readContract({
     address: RITUAL_WALLET,
@@ -159,105 +133,157 @@ async function _ensureWalletDeposit(publicClient, walletClient, address) {
     functionName: 'balanceOf',
     args: [address],
   });
-  if (balance >= BigInt('100000000000000000')) return; // >= 0.1 RITUAL, ok
+  // GLM-4.7-FP8 worst-case escrow ~0.31 RITUAL — need >= 0.32 RITUAL in RitualWallet
+  if (balance >= BigInt('320000000000000000')) return;
+  console.log(`[deathChronicle] Depositing 0.35 RITUAL to RitualWallet (current: ${balance})`);
   const hash = await walletClient.writeContract({
     address: RITUAL_WALLET,
     abi: RITUAL_WALLET_ABI,
     functionName: 'deposit',
     args: [5000n],
-    value: BigInt('500000000000000000'), // 0.5 RITUAL
+    value: BigInt('350000000000000000'), // 0.35 RITUAL
   });
   await publicClient.waitForTransactionReceipt({ hash });
 }
 
-async function _getExecutor(publicClient, capability) {
+async function _getExecutor(publicClient) {
   const services = await publicClient.readContract({
     address: TEE_REGISTRY,
     abi: TEE_REGISTRY_ABI,
     functionName: 'getServicesByCapability',
-    args: [capability, true],
+    args: [1, true], // capability 1 = LLM
   });
   return services[0]?.node?.teeAddress || null;
 }
 
 async function _callLLM(walletClient, publicClient, executor, stats) {
-  const messages = [
+  const messagesJson = JSON.stringify([
     {
       role: 'system',
-      content: 'You write exactly 2 sentences — dark, poetic epitaphs for fallen snake warriors. Be dramatic. Mention how they died. Never mention game mechanics.',
+      content: 'You write exactly 2 sentences - dark, poetic epitaphs for fallen snake warriors. Be dramatic. Mention how they died. Never mention game mechanics.',
     },
     {
       role: 'user',
       content: `Player: ${stats.name}. Score: ${stats.score}. Kills: ${stats.kills}. Length: ${stats.length}. Killed by: ${stats.killedBy}. Write the epitaph.`,
     },
-  ];
+  ]);
 
   const encoded = encodeAbiParameters(
+    parseAbiParameters(LLM_ABI),
     [
-      { type: 'address' },   // executor
-      { type: 'string'  },   // model
-      { type: 'tuple[]', components: [{ name: 'role', type: 'string' }, { name: 'content', type: 'string' }] },
-      { type: 'uint256' },   // max_tokens
-      { type: 'uint256' },   // temperature ×100 (80 = 0.8)
-      { type: 'uint256' },   // ttl (blocks)
-      { type: 'bytes[]' },   // encrypted_secrets
-      { type: 'bytes[]' },   // secret_signatures
-      { type: 'bytes'   },   // user_public_key
-      { type: 'uint256' },   // stream (0=false)
+      executor,              // executor (TEE address from registry)
+      [],                    // encryptedSecrets
+      300n,                  // ttl: 300 blocks (~105s)
+      [],                    // secretSignatures
+      '0x',                  // userPublicKey
+      messagesJson,          // messagesJson (JSON string)
+      'zai-org/GLM-4.7-FP8', // model (only live model on Ritual production)
+      0n,                    // frequencyPenalty
+      '',                    // logitBiasJson
+      false,                 // logprobs
+      4096n,                 // maxCompletionTokens (>=4096 for GLM reasoning model)
+      '',                    // metadataJson
+      '',                    // modalitiesJson
+      1n,                    // n
+      true,                  // parallelToolCalls
+      0n,                    // presencePenalty
+      'medium',              // reasoningEffort
+      '0x',                  // responseFormatData
+      -1n,                   // seed (null)
+      'auto',                // serviceTier
+      '',                    // stopJson
+      false,                 // stream
+      700n,                  // temperature (0.7 * 1000)
+      '0x',                  // toolChoiceData
+      '0x',                  // toolsData
+      -1n,                   // topLogprobs (null)
+      1000n,                 // topP (1.0 * 1000)
+      '',                    // user
+      false,                 // piiEnabled
+      ['', '', ''],          // convoHistory (no persistent history)
     ],
-    [executor, 'claude-haiku-4-5-20251001', messages, 120n, 80n, 200n, [], [], '0x', 0n]
   );
 
   const hash = await walletClient.sendTransaction({
-    to:                    LLM_PRECOMPILE,
-    data:                  encoded,
-    gas:                   2_000_000n,
-    maxFeePerGas:          20_000_000_000n,
+    to:                   LLM_PRECOMPILE,
+    data:                 encoded,
+    gas:                  3_000_000n,
+    maxFeePerGas:         20_000_000_000n,
     maxPriorityFeePerGas:  2_000_000_000n,
   });
 
-  const rawReceipt = await _waitForSpcReceipt(publicClient, hash, 120_000);
-  if (!rawReceipt?.spcCalls?.length) return _fallbackEpitaph(stats);
+  console.log(`[deathChronicle] LLM tx sent: ${hash}`);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 180_000 });
 
-  const [content] = decodeAbiParameters(
-    [{ type: 'string' }, { type: 'string' }, { type: 'uint256' }, { type: 'uint256' }],
-    rawReceipt.spcCalls[0].output
-  );
+  const resultHex = _extractPrecompileResult(receipt, LLM_PRECOMPILE);
+  if (!resultHex) {
+    console.warn('[deathChronicle] No PrecompileCalled event in receipt');
+    return _fallbackEpitaph(stats);
+  }
+
+  const content = _decodeLLMContent(resultHex);
   return content || _fallbackEpitaph(stats);
 }
 
-async function _callImage(walletClient, publicClient, executor, stats, epitaph) {
-  const prompt = `Dark fantasy portrait of a fallen snake warrior named ${stats.name}. ${epitaph} Style: digital art, dark background, neon accents, moody.`;
+function _extractPrecompileResult(receipt, precompileAddr) {
+  const topic = PRECOMPILE_CALLED_TOPIC.toLowerCase();
+  for (const log of (receipt.logs || [])) {
+    if (log.topics?.[0]?.toLowerCase() !== topic) continue;
+    try {
+      const [addr, , output] = decodeAbiParameters(
+        parseAbiParameters('address, bytes, bytes'),
+        log.data,
+      );
+      if (addr.toLowerCase() !== precompileAddr.toLowerCase()) continue;
+      // Unwrap async envelope: (bytes simmedInput, bytes actualOutput)
+      try {
+        const [, actual] = decodeAbiParameters(parseAbiParameters('bytes, bytes'), output);
+        return actual;
+      } catch {
+        return output;
+      }
+    } catch (e) {
+      console.warn('[deathChronicle] Log decode error:', e.message);
+    }
+  }
+  return null;
+}
 
-  const encoded = encodeAbiParameters(
-    [
-      { type: 'address' },  // executor
-      { type: 'string'  },  // model
-      { type: 'string'  },  // prompt
-      { type: 'uint256' },  // width
-      { type: 'uint256' },  // height
-      { type: 'uint256' },  // steps
-      { type: 'uint256' },  // ttl (blocks)
-      { type: 'bytes[]' },  // encrypted_secrets
-      { type: 'bytes[]' },  // secret_signatures
-      { type: 'bytes'   },  // user_public_key
-    ],
-    [executor, 'stable-diffusion-xl', prompt, 512n, 512n, 20n, 300n, [], [], '0x']
-  );
+function _decodeLLMContent(resultHex) {
+  try {
+    const [hasError, completionData, , errorMessage] = decodeAbiParameters(
+      parseAbiParameters('bool, bytes, bytes, string, (string,string,string)'),
+      resultHex,
+    );
 
-  const hash = await walletClient.sendTransaction({
-    to:                    IMAGE_PRECOMPILE,
-    data:                  encoded,
-    gas:                   3_000_000n,
-    maxFeePerGas:          20_000_000_000n,
-    maxPriorityFeePerGas:  2_000_000_000n,
-  });
+    if (hasError) {
+      console.error('[deathChronicle] LLM hasError:', errorMessage);
+      return null;
+    }
 
-  const rawReceipt = await _waitForSpcReceipt(publicClient, hash, 180_000);
-  if (!rawReceipt?.spcCalls?.length) return null;
+    const [, , , , , , choicesCount, choicesData] = decodeAbiParameters(
+      parseAbiParameters('string, string, uint256, string, string, string, uint256, bytes[], bytes'),
+      completionData,
+    );
 
-  const [imageB64] = decodeAbiParameters([{ type: 'string' }], rawReceipt.spcCalls[0].output);
-  return imageB64 ? `data:image/png;base64,${imageB64}` : null;
+    if (!choicesCount || !choicesData?.length) return null;
+
+    const [, , messageData] = decodeAbiParameters(
+      parseAbiParameters('uint256, string, bytes'),
+      choicesData[0],
+    );
+
+    const [, content] = decodeAbiParameters(
+      parseAbiParameters('string, string, string, uint256, bytes[]'),
+      messageData,
+    );
+
+    // GLM-4.7-FP8 wraps reasoning in <think>...</think> — strip it
+    return content ? content.replace(/<think>[\s\S]*?<\/think>/g, '').trim() : null;
+  } catch (e) {
+    console.error('[deathChronicle] Decode error:', e.message);
+    return null;
+  }
 }
 
 async function _mintNFT(stats, epitaph, portraitUri, contractAddr) {
@@ -277,7 +303,6 @@ async function _mintNFT(stats, epitaph, portraitUri, contractAddr) {
     portraitUri
   );
   const receipt = await tx.wait();
-  // Parse tokenId from event logs
   const iface = new ethers.Interface(['event ChroniclesMinted(uint256 indexed tokenId, address indexed player, string playerName)']);
   for (const log of receipt.logs) {
     try {
@@ -288,13 +313,8 @@ async function _mintNFT(stats, epitaph, portraitUri, contractAddr) {
   return null;
 }
 
-async function _waitForSpcReceipt(publicClient, hash, timeoutMs) {
-  await publicClient.waitForTransactionReceipt({ hash, timeout: timeoutMs });
-  return publicClient.request({ method: 'eth_getTransactionReceipt', params: [hash] });
-}
-
 function _fallbackEpitaph(stats) {
-  return `${stats.name} fought valiantly, claiming ${stats.kills} souls before their ${stats.length}-segment form was undone by ${stats.killedBy}. They fade into the digital abyss, ${stats.score} fragments of sustenance their only legacy.`;
+  return `${stats.name} fought valiantly, claiming ${stats.kills} souls before their ${stats.length}-segment form was undone by ${stats.killedBy}. They fade into the digital abyss, ${stats.score} points their only legacy.`;
 }
 
 module.exports = { generateDeathChronicle };
