@@ -284,7 +284,7 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .nft-rank-badge{width:52px;height:52px;border-radius:50%;background:var(--gold);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--fd);font-size:17px;color:#000;flex-shrink:0}
 .nft-rank-badge small{font-size:8px;font-family:var(--fb);font-weight:600;letter-spacing:.1em;color:#000;margin-top:-2px}
 .nft-card-mid{display:flex;gap:14px;align-items:center;margin-bottom:14px}
-#nft-portrait{border-radius:8px;background:#0d1a0e}
+#nft-portrait{width:180px;height:195px;display:block;border-radius:8px;background:#0d1a0e}
 .nft-stats{display:flex;flex-direction:column;gap:8px;flex:1}
 .nft-stat-box{background:var(--bg2);border:1px solid var(--g7);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px}
 .nft-stat-icon{font-size:12px;color:var(--g5)}
@@ -292,7 +292,17 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .nft-green{color:var(--green)}
 .nft-red{color:var(--red)}
 .nft-stat-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--g5)}
-.nft-epitaph{font-style:italic;font-size:12px;color:var(--g5);text-align:center;padding:10px 0;border-top:1px dashed var(--g7);border-bottom:1px dashed var(--g7);margin-bottom:12px}
+.nft-epitaph{font-style:italic;font-size:12px;color:var(--g5);text-align:center;padding:10px 0;border-top:1px dashed var(--g7);border-bottom:1px dashed var(--g7);margin-bottom:12px;transition:color .4s}
+.nft-epitaph.loading{color:var(--g7);animation:epitaph-pulse 1.4s ease-in-out infinite}
+@keyframes epitaph-pulse{0%,100%{opacity:.5}50%{opacity:1}}
+.nft-portrait-wrap{position:relative;width:180px;height:195px;flex-shrink:0}
+#nft-portrait{position:absolute;inset:0;border-radius:8px;background:#0d1a0e}
+.nft-portrait-spinner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0d1a0e;border-radius:8px;flex-direction:column;gap:8px;pointer-events:none;transition:opacity .4s}
+.nft-portrait-spinner span{font-family:var(--fm);font-size:9px;color:var(--g5);text-transform:uppercase;letter-spacing:.08em}
+.nft-spinner-ring{width:28px;height:28px;border:2px solid var(--g7);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.nft-view-btn{min-width:150px;padding:12px 20px;border-radius:10px;border:1px solid var(--green);background:rgba(25,209,132,.08);font-family:var(--fb);font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;color:var(--green);text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px}
+.nft-view-btn:hover{background:rgba(25,209,132,.18)}
 .nft-info-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
 .nft-info-row{display:flex;justify-content:space-between;font-size:10px}
 .nft-info-row span:first-child{color:var(--g5);text-transform:uppercase;letter-spacing:.08em;font-family:var(--fm)}
@@ -524,7 +534,13 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
         <div class="nft-rank-badge" id="nft-rank">#1<small>RANK</small></div>
       </div>
       <div class="nft-card-mid">
-        <canvas id="nft-portrait" width="180" height="195"></canvas>
+        <div class="nft-portrait-wrap">
+          <canvas id="nft-portrait" width="180" height="195"></canvas>
+          <div class="nft-portrait-spinner" id="nft-portrait-spinner">
+            <div class="nft-spinner-ring"></div>
+            <span>Ritual AI</span>
+          </div>
+        </div>
         <div class="nft-stats">
           <div class="nft-stat-box">
             <div class="nft-stat-icon">★</div>
@@ -990,6 +1006,10 @@ function handleMsg(d) {
       stopQueueCountdown();
       showScreen('lobby');
       break;
+    case 'chronicle_ready':
+      applyChronicle(d);
+      break;
+
     case 'chronicle_committed': {
       const btn = document.getElementById('chr-commit-btn');
       if (btn) { btn.textContent = '✓ Chronicle Committed'; btn.disabled = true; }
@@ -1066,6 +1086,7 @@ const NFT_EPITAPHS = [
 ];
 
 let _nftStats = null;
+let _latestChronicle = null;
 
 function showNftCard(stats, rank, playerCount, roomId) {
   _nftStats = { stats, rank, playerCount, roomId };
@@ -1081,8 +1102,12 @@ function showNftCard(stats, rank, playerCount, roomId) {
   rankEl.style.background = rank === 1 ? 'var(--gold)' : rank === 2 ? '#94A3B8' : rank === 3 ? '#B45309' : 'var(--g7)';
   rankEl.style.color = rank <= 3 ? '#000' : 'var(--g4)';
 
-  document.getElementById('nft-epitaph').textContent =
-    '"' + NFT_EPITAPHS[Math.floor(Math.random() * NFT_EPITAPHS.length)] + '"';
+  // Start in loading state — Ritual AI generating
+  const epitaphEl = document.getElementById('nft-epitaph');
+  epitaphEl.textContent = '⟳ Ritual AI generating epitaph...';
+  epitaphEl.classList.add('loading');
+  document.getElementById('nft-portrait-spinner').style.opacity = '1';
+  document.getElementById('nft-portrait-spinner').style.display = 'flex';
 
   const addr = walletAddr
     ? walletAddr.slice(0, 6) + '...' + walletAddr.slice(-4)
@@ -1091,18 +1116,83 @@ function showNftCard(stats, rank, playerCount, roomId) {
   const dateStr = now.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
   document.getElementById('nft-info-player').textContent  = (stats.name || '?') + ' · ' + addr;
   document.getElementById('nft-info-session').textContent = dateStr + ' · ' + (roomId || '?');
-  document.getElementById('nft-info-duration').textContent = '10 min · ' + playerCount + ' players';
-  document.getElementById('nft-token-id').textContent =
-    'RITUAL-SNAKE-' + String(Math.floor(Math.random() * 9999999)).padStart(7, '0');
+  document.getElementById('nft-info-duration').textContent = '7 min · ' + playerCount + ' players';
+  document.getElementById('nft-token-id').textContent = 'RITUAL-SNAKE-PENDING';
 
   drawNftPortrait(stats);
 
   const mintBtn = document.getElementById('nft-mint-btn');
   mintBtn.textContent = '○ Mint as NFT';
   mintBtn.disabled = false;
+  mintBtn.style.display = '';
+  const viewLink = document.getElementById('nft-view-link');
+  if (viewLink) viewLink.remove();
   document.getElementById('nft-lobby-btn').style.display = 'none';
 
   showScreen('nft-card');
+
+  // If chronicle already arrived before card showed, apply it now
+  if (_latestChronicle) applyChronicle(_latestChronicle);
+}
+
+function applyChronicle(data) {
+  _latestChronicle = data;
+  const onNftCard = document.getElementById('screen-nft-card')?.classList.contains('active');
+
+  if (onNftCard) {
+    // Update epitaph
+    const epitaphEl = document.getElementById('nft-epitaph');
+    if (epitaphEl && data.epitaph) {
+      epitaphEl.textContent = '"' + data.epitaph + '"';
+      epitaphEl.classList.remove('loading');
+    }
+
+    // Update portrait
+    const spinner = document.getElementById('nft-portrait-spinner');
+    if (data.portraitUri) {
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.getElementById('nft-portrait');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        if (spinner) spinner.style.opacity = '0';
+        setTimeout(() => { if (spinner) spinner.style.display = 'none'; }, 400);
+      };
+      img.src = data.portraitUri;
+    } else {
+      if (spinner) { spinner.style.opacity = '0'; setTimeout(() => { spinner.style.display = 'none'; }, 400); }
+    }
+
+    // Update token ID + mint/view button
+    if (data.tokenId) {
+      document.getElementById('nft-token-id').textContent = 'RITUAL-SNAKE-' + String(data.tokenId).padStart(7, '0');
+      const mintBtn = document.getElementById('nft-mint-btn');
+      if (mintBtn) {
+        mintBtn.style.display = 'none';
+        if (!document.getElementById('nft-view-link')) {
+          const a = document.createElement('a');
+          a.id = 'nft-view-link';
+          a.className = 'nft-view-btn';
+          a.href = `https://explorer.ritualfoundation.org/token/${window.CHRONICLE_NFT_ADDRESS}/instance/${data.tokenId}`;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.innerHTML = '⬡ View NFT #' + data.tokenId + ' →';
+          mintBtn.parentNode.insertBefore(a, mintBtn);
+        }
+      }
+    } else {
+      const rand = String(Math.floor(Math.random() * 9999999)).padStart(7, '0');
+      document.getElementById('nft-token-id').textContent = 'RITUAL-SNAKE-' + rand;
+    }
+  }
+
+  const toastMsg = data.tokenId
+    ? '⬡ Death Chronicle minted as NFT #' + data.tokenId
+    : data.epitaph
+      ? '⬡ Death Chronicle ready'
+      : null;
+  if (toastMsg) showToast(toastMsg);
 }
 
 function drawNftPortrait() {
