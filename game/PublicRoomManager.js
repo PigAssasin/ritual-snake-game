@@ -2,8 +2,7 @@
 
 const GameRoom = require('./GameRoom');
 
-const PUBLIC_ROOM_COUNT = 5;
-const STAGGER_MS = 90_000; // 90s between room starts
+const PUBLIC_ROOM_COUNT = 1;
 
 class PublicRoomManager {
   constructor(opts = {}) {
@@ -25,7 +24,7 @@ class PublicRoomManager {
         onSessionEnd:  this._onSessionEnd,
       });
       // Stagger starts so rooms don't all reset simultaneously
-      setTimeout(() => room.startSession(), i * STAGGER_MS);
+      setTimeout(() => room.startSession(), 0);
       this.rooms.set(id, room);
     }
     // Drain queue every 5s
@@ -38,7 +37,7 @@ class PublicRoomManager {
     for (const room of this.rooms.values()) {
       if (room.isFull()) continue;
       const t = room.timeRemaining();
-      if (t <= 120_000) continue;
+      if (t <= 240_000) continue;  // 4 minutes minimum
       if (t > bestTime) { bestTime = t; best = room; }
     }
     return best;
