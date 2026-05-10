@@ -6,11 +6,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
 
-/**
- * ChronicleNFT — ERC-721 minted on player elimination in public rooms.
- * Metadata is stored fully onchain: epitaph (text) + portrait (base64 image).
- * Minting is restricted to the owner (server wallet).
- */
 contract ChronicleNFT is ERC721, Ownable {
     using Strings for uint256;
 
@@ -20,8 +15,8 @@ contract ChronicleNFT is ERC721, Ownable {
         uint256 kills;
         uint256 length;
         string  killedBy;
-        string  epitaph;     // LLM-generated epitaph (Ritual 0x0802)
-        string  portraitUri; // data:image/... base64 (Ritual 0x0818)
+        string  epitaph;
+        string  portraitUri;
         uint256 timestamp;
     }
 
@@ -31,21 +26,9 @@ contract ChronicleNFT is ERC721, Ownable {
 
     event ChroniclesMinted(uint256 indexed tokenId, address indexed player, string playerName);
 
-    constructor() ERC721("Snake Death Chronicle", "SNKC") Ownable(msg.sender) {}
+    // OZ v4: Ownable() takes no args
+    constructor() ERC721("Snake Death Chronicle", "SNKC") Ownable() {}
 
-    /**
-     * Mint a Death Chronicle NFT.
-     * Called by server (owner) after LLM + Image generation completes.
-     *
-     * @param to          Player wallet address
-     * @param playerName  In-game name
-     * @param score       Food eaten
-     * @param kills       Kills this session
-     * @param length      Snake length at death
-     * @param killedBy    Name of killer or "wall"
-     * @param epitaph     2-sentence epitaph from Ritual LLM
-     * @param portraitUri data:image/png;base64,... from Ritual Image precompile
-     */
     function mint(
         address         to,
         string calldata playerName,
@@ -73,14 +56,12 @@ contract ChronicleNFT is ERC721, Ownable {
         return tokenId;
     }
 
-    // ── Metadata (fully onchain) ──
-
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        _requireOwned(tokenId);
+        require(_exists(tokenId), "ERC721: invalid token ID");
         Chronicle memory c = _chronicles[tokenId];
 
         string memory json = string(abi.encodePacked(
-            '{"name":"Chronicle #', tokenId.toString(), ' — ', c.playerName, '",',
+            '{"name":"Chronicle #', tokenId.toString(), ' - ', c.playerName, '",',
             '"description":"', _escape(c.epitaph), '",',
             '"image":"', c.portraitUri, '",',
             '"attributes":[',
@@ -98,7 +79,7 @@ contract ChronicleNFT is ERC721, Ownable {
     }
 
     function getChronicle(uint256 tokenId) external view returns (Chronicle memory) {
-        _requireOwned(tokenId);
+        require(_exists(tokenId), "ERC721: invalid token ID");
         return _chronicles[tokenId];
     }
 
@@ -110,7 +91,6 @@ contract ChronicleNFT is ERC721, Ownable {
         return _nextTokenId;
     }
 
-    // Escape double quotes in strings for JSON
     function _escape(string memory s) internal pure returns (string memory) {
         bytes memory b = bytes(s);
         uint256 extras = 0;
