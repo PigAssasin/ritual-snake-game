@@ -6,6 +6,7 @@
 <title>Ritual Snake</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
 <style>
 :root{
   --fd:'Archivo Black',system-ui,sans-serif;
@@ -296,7 +297,7 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 
 /* ── NFT CARD ─────────────────────────────────────────── */
 #screen-nft-card{background:#0a0a0a;align-items:center;justify-content:center}
-.nft-bg{display:flex;flex-direction:column;align-items:center;gap:16px;padding:24px}
+.nft-bg{position:relative;display:flex;flex-direction:column;align-items:center;gap:16px;padding:24px}
 .nft-card{position:relative;background:#111a12;border:1px solid #3a5c3a;border-radius:14px;padding:20px;width:340px;box-shadow:0 0 40px rgba(25,209,132,.08)}
 .nft-card-border{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(to right,var(--green),rgba(25,209,132,.2),transparent);border-radius:14px 14px 0 0}
 .nft-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
@@ -337,10 +338,13 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .nft-btn{min-width:150px;padding:12px 20px;border-radius:10px;border:1px solid;background:transparent;font-family:var(--fb);font-size:13px;font-weight:600;cursor:pointer;transition:all .18s}
 .nft-primary{border-color:var(--gold);color:var(--gold)}
 .nft-primary:hover{background:rgba(250,204,21,.08)}
-.nft-secondary{border-color:var(--g7);color:var(--g4)}
-.nft-secondary:hover{border-color:var(--g5);color:var(--g3)}
-.nft-lobby-btn{background:transparent;border:none;color:var(--g5);font-family:var(--fb);font-size:12px;cursor:pointer;padding:6px 12px;border-radius:6px;transition:color .15s}
-.nft-lobby-btn:hover{color:var(--g3)}
+.nft-lobby-btn{min-width:150px;padding:12px 20px;border-radius:10px;border:1px solid var(--g7);background:transparent;font-family:var(--fb);font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;color:var(--g4)}
+.nft-lobby-btn:hover{border-color:var(--g5);color:var(--g3)}
+.nft-share-x-btn{position:absolute;right:-54px;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;border:1px solid var(--g7);background:rgba(255,255,255,.04);color:var(--g4);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .18s;font-family:var(--fb)}
+.nft-share-x-btn:hover{border-color:var(--g5);color:var(--g3);background:rgba(255,255,255,.08)}
+.nft-copy-btn{position:absolute;left:-54px;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;border:1px solid var(--g7);background:rgba(255,255,255,.04);color:var(--g4);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .18s}
+.nft-copy-btn:hover{border-color:var(--green);color:var(--green);background:rgba(25,209,132,.08)}
+.nft-copy-btn.copied{border-color:var(--green);color:var(--green);background:rgba(25,209,132,.12)}
 
 /* ── CHRONICLE ────────────────────────────────────────── */
 #screen-chronicle{background:#0a0a0a;align-items:center;justify-content:center}
@@ -597,9 +601,10 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
     </div>
     <div class="nft-actions">
       <button class="nft-btn nft-primary" id="nft-mint-btn" onclick="mintNft()">○ Mint as NFT</button>
-      <button class="nft-btn nft-secondary" onclick="shareOnX()">✕ Share on X</button>
+      <button class="nft-lobby-btn" onclick="backToLobby()">← Back to Lobby</button>
     </div>
-    <button class="nft-lobby-btn" id="nft-lobby-btn" style="display:none" onclick="backToLobby()">← Back to Lobby</button>
+    <button class="nft-share-x-btn" onclick="shareOnX()" title="Share on X">𝕏</button>
+    <button class="nft-copy-btn" id="nft-copy-btn" onclick="copyCard()" title="Copy card as image">⎘</button>
   </div>
 </div>
 
@@ -1098,6 +1103,18 @@ function handleMsg(d) {
       applyChronicle(d);
       break;
 
+    case 'chronicle_minted':
+      applyChronicleTokenId(d.tokenId);
+      break;
+
+    case 'chronicle_pending':
+      applyChronicleLoading(d.msg || 'RITUAL AI IS WRITING...');
+      break;
+
+    case 'tournament_chronicle':
+      applyTournamentChronicle(d);
+      break;
+
     case 'chronicle_committed': {
       const btn = document.getElementById('chr-commit-btn');
       if (btn) { btn.textContent = '✓ Chronicle Committed'; btn.disabled = true; }
@@ -1221,12 +1238,43 @@ function showNftCard(stats, rank, playerCount, roomId) {
     mintBtn.disabled = false;
     mintBtn.style.display = '';
   }
-  document.getElementById('nft-lobby-btn').style.display = '';
-
   showScreen('nft-card');
 
   // If chronicle already arrived before card showed, apply it now
   if (_latestChronicle) applyChronicle(_latestChronicle);
+}
+
+function applyChronicleTokenId(tokenId) {
+  if (!tokenId) return;
+  const btn = document.getElementById('nft-mint-btn');
+  if (btn) { btn.textContent = '✓ NFT #' + tokenId; btn.disabled = true; btn.style.opacity = '0.7'; }
+}
+
+function applyChronicleLoading(msg) {
+  const body = document.getElementById('chr-body');
+  if (!body) return;
+  const existing = document.getElementById('chr-ritual-loading');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'chr-ritual-loading';
+  div.style.cssText = 'margin-top:16px;color:#19D184;font-family:var(--fm);font-size:12px;animation:blink 1.2s step-end infinite';
+  div.textContent = '⬡ ' + msg;
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+}
+
+function applyTournamentChronicle(d) {
+  const body = document.getElementById('chr-body');
+  if (!body) return;
+  const loading = document.getElementById('chr-ritual-loading');
+  if (loading) loading.remove();
+  const block = document.createElement('div');
+  block.style.cssText = 'margin-top:20px;padding:16px;background:rgba(25,209,132,.06);border:1px solid rgba(25,209,132,.2);border-radius:8px;font-family:var(--fb);font-size:13px;line-height:1.7;color:#d1fae5';
+  block.innerHTML =
+    '<div style="font-family:var(--fm);font-size:10px;color:var(--green);letter-spacing:.1em;margin-bottom:8px">⬡ RITUAL AI CHRONICLE</div>' +
+    '<div>' + (d.chronicle || '').replace(/\n/g, '<br>') + '</div>';
+  body.appendChild(block);
+  body.scrollTop = body.scrollHeight;
 }
 
 function applyChronicle(data) {
@@ -1358,13 +1406,52 @@ function mintNft() {
 function shareOnX() {
   const s = _nftStats?.stats || {};
   const rank = _nftStats?.rank || '?';
+  const epitaph = document.getElementById('nft-epitaph')?.textContent || '';
   const text = encodeURIComponent(
-    'I just played Ritual Snake — Score: ' + (s.score||0).toLocaleString() +
+    (epitaph && !epitaph.includes('generating') ? epitaph + '\n\n' : '') +
+    'Ritual Snake — Score: ' + (s.score||0).toLocaleString() +
     ' · Length: ' + (s.length||0) + ' · Kills: ' + (s.kills||0) +
     ' · Rank #' + rank + '\n\nPlay at http://168.144.142.150:3000 #RitualSnake #RitualChain'
   );
   window.open('https://x.com/intent/tweet?text=' + text, '_blank');
-  document.getElementById('nft-lobby-btn').style.display = '';
+}
+
+async function copyCard() {
+  const btn  = document.getElementById('nft-copy-btn');
+  const card = document.getElementById('nft-card-inner');
+  if (!card || typeof html2canvas === 'undefined') {
+    showToast('Copy not ready yet — try again');
+    return;
+  }
+  btn.textContent = '…';
+  btn.disabled = true;
+  try {
+    const canvas = await html2canvas(card, {
+      backgroundColor: '#111a12',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    });
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    if (navigator.clipboard?.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      showToast('✓ Card copied — paste into X!');
+    } else {
+      // Fallback: download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'ritual-snake-chronicle.png'; a.click();
+      URL.revokeObjectURL(url);
+      showToast('✓ Card saved as image');
+    }
+    btn.classList.add('copied');
+    setTimeout(() => btn.classList.remove('copied'), 2000);
+  } catch (e) {
+    showToast('Copy failed: ' + (e.message || 'try screenshot instead'));
+  } finally {
+    btn.textContent = '⎘';
+    btn.disabled = false;
+  }
 }
 
 let _chronicleAutoTimer = null;
