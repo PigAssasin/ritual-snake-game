@@ -1122,11 +1122,17 @@ function showNftCard(stats, rank, playerCount, roomId) {
   drawNftPortrait(stats);
 
   const mintBtn = document.getElementById('nft-mint-btn');
-  mintBtn.textContent = '○ Mint as NFT';
-  mintBtn.disabled = false;
-  mintBtn.style.display = '';
   const viewLink = document.getElementById('nft-view-link');
   if (viewLink) viewLink.remove();
+  if (walletAddr) {
+    mintBtn.textContent = '⟳ Ritual Chain minting...';
+    mintBtn.disabled = true;
+    mintBtn.style.display = '';
+  } else {
+    mintBtn.textContent = '○ Connect wallet for NFT';
+    mintBtn.disabled = false;
+    mintBtn.style.display = '';
+  }
   document.getElementById('nft-lobby-btn').style.display = 'none';
 
   showScreen('nft-card');
@@ -1182,8 +1188,14 @@ function applyChronicle(data) {
         }
       }
     } else {
+      // Mint failed or no wallet — update button state
       const rand = String(Math.floor(Math.random() * 9999999)).padStart(7, '0');
       document.getElementById('nft-token-id').textContent = 'RITUAL-SNAKE-' + rand;
+      const mintBtn = document.getElementById('nft-mint-btn');
+      if (mintBtn) {
+        mintBtn.textContent = walletAddr ? '✕ Mint unavailable' : '○ Connect wallet for NFT';
+        mintBtn.disabled = walletAddr ? true : false;
+      }
     }
   }
 
@@ -1233,34 +1245,14 @@ function drawNftPortrait() {
   }
 }
 
-async function mintNft() {
+function mintNft() {
+  // NFT is minted server-side (onlyOwner contract). Client just needs to wait for chronicle_ready.
   if (!walletAddr) {
-    await connectWallet();
-    if (!walletAddr) return;
-  }
-  const btn = document.getElementById('nft-mint-btn');
-  btn.textContent = '○ Minting...'; btn.disabled = true;
-  try {
-    if (typeof ethers === 'undefined') throw new Error('ethers.js not loaded');
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer   = await provider.getSigner();
-    const abi = ['function mint(string name,uint256 score,uint256 kills,uint256 length,string skin) payable'];
-    const addr = window.CHRONICLE_NFT_ADDRESS || '0x0000000000000000000000000000000000000000';
-    const contract = new ethers.Contract(addr, abi, signer);
-    const s = _nftStats?.stats || {};
-    const tx = await contract.mint(
-      s.name || 'Snake', BigInt(s.score || 0),
-      BigInt(s.kills || 0), BigInt(s.length || 0), selectedSkin || 'default'
-    );
-    await tx.wait();
-    btn.textContent = '✓ Minted!';
-  } catch (e) {
-    btn.textContent = '✕ Failed — retry';
-    btn.disabled = false;
-    showToast(e.reason || e.message || 'Mint failed');
+    showToast('Connect wallet before playing to receive an NFT');
+    openWalletModal();
     return;
   }
-  document.getElementById('nft-lobby-btn').style.display = '';
+  showToast('Chronicle is being minted by Ritual Chain — check back shortly');
 }
 
 function shareOnX() {
