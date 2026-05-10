@@ -58,8 +58,31 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
 .w-balance{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid var(--g7);margin-bottom:4px}
 .w-bal-label{font-size:11px;color:var(--g5)}
 .w-bal-val{font-family:var(--fm);font-size:13px;color:var(--lime)}
+.w-nfts-btn{width:100%;padding:9px 14px;border:none;background:transparent;color:var(--green);font-family:var(--fb);font-size:12px;font-weight:600;cursor:pointer;border-radius:7px;text-align:left;transition:all .15s}
+.w-nfts-btn:hover{background:rgba(25,209,132,.08)}
 .w-disc{width:100%;padding:9px 14px;border:none;background:transparent;color:var(--red);font-family:var(--fb);font-size:12px;font-weight:600;cursor:pointer;border-radius:7px;text-align:left;transition:all .15s}
 .w-disc:hover{background:rgba(239,68,68,.08)}
+/* ── NFT GALLERY PANEL ──────────────────────────────────── */
+#nft-gallery-overlay{display:none;position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)}
+#nft-gallery-panel{position:fixed;top:0;right:0;bottom:0;width:min(420px,100vw);background:#0d0d0d;border-left:1px solid rgba(25,209,132,.2);z-index:401;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.22,1,.36,1)}
+#nft-gallery-panel.open{transform:translateX(0)}
+.ngp-header{padding:20px 20px 14px;border-bottom:1px solid #1f2937;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.ngp-title{font-family:var(--fd);font-size:17px;color:#F3F4F6;flex:1}
+.ngp-close{background:none;border:none;color:var(--g5);font-size:20px;cursor:pointer;line-height:1;padding:4px}
+.ngp-close:hover{color:var(--g3)}
+.ngp-body{flex:1;overflow-y:auto;padding:16px}
+.ngp-empty{text-align:center;color:var(--g5);font-size:13px;padding:48px 0;font-family:var(--fm)}
+.ngp-loading{text-align:center;color:var(--g5);font-size:12px;padding:32px 0;font-family:var(--fm);animation:epitaph-pulse 1.4s ease-in-out infinite}
+.nft-item{background:#111a12;border:1px solid #2a3f2a;border-radius:10px;padding:14px;margin-bottom:10px;transition:border-color .2s}
+.nft-item:hover{border-color:rgba(25,209,132,.4)}
+.nft-item-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.nft-item-name{font-family:var(--fd);font-size:14px;color:#F3F4F6}
+.nft-item-id{font-family:var(--fm);font-size:10px;color:var(--green);background:rgba(25,209,132,.1);border:1px solid rgba(25,209,132,.25);padding:2px 8px;border-radius:20px}
+.nft-item-stats{display:flex;gap:12px;margin-bottom:8px}
+.nft-item-stat{display:flex;flex-direction:column;align-items:center;gap:2px}
+.nft-item-stat span:first-child{font-family:var(--fm);font-size:14px;font-weight:600;color:#F3F4F6}
+.nft-item-stat span:last-child{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--g5)}
+.nft-item-epitaph{font-style:italic;font-size:11px;color:var(--g5);line-height:1.55;border-top:1px dashed #1f2937;padding-top:8px}
 .l-center{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:36px;padding:48px}
 .l-hero{text-align:center}
 .l-title{font-family:var(--fd);font-size:clamp(2.4rem,5vw,4.5rem);color:#F3F4F6;letter-spacing:-.02em;line-height:1.02;margin-bottom:14px}
@@ -376,6 +399,7 @@ body{background:#0a0a0a;color:var(--g3);font-family:var(--fb);font-size:14px;hei
         <div class="w-dropdown" id="w-dropdown">
           <div class="w-addr"><div class="w-addr-label">Connected Wallet</div><div class="w-addr-val" id="w-addr-val">—</div></div>
           <div class="w-balance"><span class="w-bal-label">Balance</span><span class="w-bal-val" id="w-bal-val">—</span></div>
+          <button class="w-nfts-btn" onclick="openNftGallery()">⬡ &nbsp;My Chronicles</button>
           <button class="w-disc" onclick="disconnectWallet()">✕ &nbsp;Disconnect</button>
         </div>
       </div>
@@ -887,6 +911,70 @@ async function connectWallet() { openWalletModal(); }
 function disconnectWallet() {
   _setWallet(null);
   walletAddr = null;
+}
+
+// ── NFT Gallery ───────────────────────────────────────
+function openNftGallery() {
+  document.getElementById('w-dropdown').classList.remove('open');
+  document.getElementById('nft-gallery-overlay').style.display = 'block';
+  const panel = document.getElementById('nft-gallery-panel');
+  panel.classList.add('open');
+  loadNftGallery();
+}
+
+function closeNftGallery() {
+  document.getElementById('nft-gallery-overlay').style.display = 'none';
+  document.getElementById('nft-gallery-panel').classList.remove('open');
+}
+
+async function loadNftGallery() {
+  const body = document.getElementById('ngp-body');
+  if (!walletAddr) {
+    body.innerHTML = '<div class="ngp-empty">Connect wallet to view your Death Chronicles</div>';
+    return;
+  }
+  body.innerHTML = '<div class="ngp-loading">Loading chronicles...</div>';
+  try {
+    if (typeof ethers === 'undefined') throw new Error('ethers not loaded');
+    const provider = new ethers.JsonRpcProvider('https://rpc.ritualfoundation.org');
+    const addr = window.CHRONICLE_NFT_ADDRESS;
+    const abi = [
+      'function tokensOf(address player) view returns (uint256[])',
+      'function tokenURI(uint256 tokenId) view returns (string)',
+      'function getChronicle(uint256 tokenId) view returns (tuple(string playerName,uint256 score,uint256 kills,uint256 length,string killedBy,string epitaph,string portraitUri,uint256 timestamp))',
+    ];
+    const contract = new ethers.Contract(addr, abi, provider);
+    const tokenIds = await contract.tokensOf(walletAddr);
+    if (!tokenIds.length) {
+      body.innerHTML = '<div class="ngp-empty">No chronicles yet.<br>Play a game to earn your first NFT.</div>';
+      return;
+    }
+    // Load chronicles newest first
+    const ids = [...tokenIds].reverse();
+    let html = '';
+    for (const id of ids) {
+      try {
+        const c = await contract.getChronicle(id);
+        const date = new Date(Number(c.timestamp) * 1000).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+        html += `<div class="nft-item">
+          <div class="nft-item-top">
+            <div class="nft-item-name">${c.playerName || 'Unknown'}</div>
+            <div class="nft-item-id">#${id}</div>
+          </div>
+          <div class="nft-item-stats">
+            <div class="nft-item-stat"><span style="color:var(--gold)">${c.score}</span><span>Score</span></div>
+            <div class="nft-item-stat"><span style="color:var(--green)">${c.length}</span><span>Length</span></div>
+            <div class="nft-item-stat"><span style="color:var(--red)">${c.kills}</span><span>Kills</span></div>
+          </div>
+          <div style="font-size:10px;color:var(--g5);font-family:var(--fm);margin-bottom:6px">${date} · killed by ${c.killedBy || '?'}</div>
+          <div class="nft-item-epitaph">"${c.epitaph || '—'}"</div>
+        </div>`;
+      } catch (_) {}
+    }
+    body.innerHTML = html || '<div class="ngp-empty">Could not load chronicles.</div>';
+  } catch (e) {
+    body.innerHTML = `<div class="ngp-empty">Error: ${e.message}</div>`;
+  }
 }
 
 document.addEventListener('click', e => {
@@ -1923,6 +2011,19 @@ window.SNAKE_GAME_ADDRESS     = '0xC30e2D0a12aD53cbE72c9545B1d8aDC1Eef130Fc';
 </script>
 
 <!-- ═══ WALLET MODAL ════════════════════════════════════ -->
+<!-- ═══ NFT GALLERY PANEL ════════════════════════════════ -->
+<div id="nft-gallery-overlay" onclick="closeNftGallery()"></div>
+<div id="nft-gallery-panel">
+  <div class="ngp-header">
+    <span style="color:var(--green);font-size:18px">⬡</span>
+    <div class="ngp-title">My Chronicles</div>
+    <button class="ngp-close" onclick="closeNftGallery()">✕</button>
+  </div>
+  <div class="ngp-body" id="ngp-body">
+    <div class="ngp-empty">Connect wallet to view your Death Chronicles</div>
+  </div>
+</div>
+
 <!-- ═══ NFT NOTIFICATION (right-side, any screen) ════════ -->
 <div id="nft-notif" style="display:none;position:fixed;right:20px;bottom:80px;z-index:2000;width:290px;background:#0d1a0e;border:1px solid rgba(25,209,132,.45);border-radius:12px;padding:14px 16px;box-shadow:0 4px 24px rgba(25,209,132,.12);animation:notif-in .35s cubic-bezier(.22,1,.36,1)">
   <style>@keyframes notif-in{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}</style>
