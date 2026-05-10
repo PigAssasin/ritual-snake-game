@@ -5,7 +5,7 @@
     "start": "node server.js",
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js --network ritual",
-    "build:wallet": "npx esbuild wallet/privy-bridge.jsx --bundle --format=iife --outfile=public/wallet-bundle.js --jsx=automatic --platform=browser --define:process.env.NODE_ENV='\"production\"'"
+    "build:wallet": "npx esbuild wallet/privy-bridge.jsx --bundle --format=iife --outfile=public/wallet-bundle.js --jsx=automatic --platform=browser --minify --define:process.env.NODE_ENV='\"production\"'"
   },
   "dependencies": {
     "ws": "^8.18.0"

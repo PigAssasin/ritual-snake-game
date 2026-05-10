@@ -746,27 +746,10 @@ async function checkRitualStatus() {
   }
 }
 
-// ── Wallet (Privy multi-wallet) ───────────────────────
+// ── Wallet ────────────────────────────────────────────
 let walletAddr = null;
 
-function toggleWallet() {
-  if (walletAddr) {
-    document.getElementById('w-dropdown').classList.toggle('open');
-  } else {
-    connectWallet();
-  }
-}
-
-async function connectWallet() {
-  if (!window._privy) { showToast('Wallet SDK loading — try again in a moment'); return; }
-  try { await window._privy.login(); } catch (e) { /* dismissed */ }
-}
-
-function disconnectWallet() {
-  if (window._privy) window._privy.logout();
-}
-
-window.addEventListener('walletchange', ({ detail: { addr } }) => {
+function _setWallet(addr) {
   walletAddr = addr;
   const btn    = document.getElementById('wbtn-text');
   const chev   = document.getElementById('wchev');
@@ -781,10 +764,77 @@ window.addEventListener('walletchange', ({ detail: { addr } }) => {
     if (chev) chev.style.display = 'none';
     document.getElementById('w-dropdown').classList.remove('open');
   }
-});
+}
+
+function toggleWallet() {
+  if (walletAddr) document.getElementById('w-dropdown').classList.toggle('open');
+  else openWalletModal();
+}
+
+function openWalletModal() {
+  const list = document.getElementById('wm-list');
+  list.innerHTML = '';
+  const wallets = [
+    { name: 'MetaMask',        icon: '🦊', provider: () => window.ethereum?.isMetaMask ? window.ethereum : null },
+    { name: 'OKX Wallet',      icon: '⭕', provider: () => window.okxwallet || null },
+    { name: 'Coinbase Wallet', icon: '🔵', provider: () => window.ethereum?.isCoinbaseWallet ? window.ethereum : (window.coinbaseWalletExtension || null) },
+    { name: 'Browser Wallet',  icon: '🌐', provider: () => window.ethereum || null },
+  ];
+  const seen = new Set();
+  for (const w of wallets) {
+    const p = w.provider();
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    const btn = document.createElement('button');
+    btn.style.cssText = 'width:100%;display:flex;align-items:center;gap:12px;padding:12px 16px;background:#1F2937;border:1px solid #374151;border-radius:10px;color:#D1D5DB;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;text-align:left';
+    btn.onmouseover = () => { btn.style.borderColor = '#19D184'; btn.style.color = '#F3F4F6'; };
+    btn.onmouseout  = () => { btn.style.borderColor = '#374151'; btn.style.color = '#D1D5DB'; };
+    btn.innerHTML = `<span style="font-size:22px">${w.icon}</span><span>${w.name}</span><span style="margin-left:auto;font-size:11px;color:#19D184">Detected ✓</span>`;
+    btn.onclick = () => connectProvider(p, w.name);
+    list.appendChild(btn);
+  }
+  if (!list.children.length) {
+    list.innerHTML = '<div style="color:#6B7280;font-size:13px;text-align:center;padding:16px">No wallet detected.<br>Install MetaMask or OKX Wallet.</div>';
+  }
+  const modal = document.getElementById('wallet-modal');
+  modal.style.display = 'flex';
+}
+
+function closeWalletModal() {
+  document.getElementById('wallet-modal').style.display = 'none';
+  document.getElementById('wm-addr-input').value = '';
+}
+
+async function connectProvider(provider, name) {
+  try {
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    if (!accounts[0]) throw new Error('No account');
+    closeWalletModal();
+    _setWallet(accounts[0]);
+    showToast('✓ ' + name + ' connected');
+  } catch (e) {
+    showToast('Connection cancelled');
+  }
+}
+
+function connectPasted() {
+  const val = document.getElementById('wm-addr-input').value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(val)) { showToast('Invalid address'); return; }
+  closeWalletModal();
+  _setWallet(val);
+  showToast('✓ View-only address set');
+}
+
+async function connectWallet() { openWalletModal(); }
+
+function disconnectWallet() {
+  _setWallet(null);
+  walletAddr = null;
+}
 
 document.addEventListener('click', e => {
   if (!e.target.closest('.w-wrap')) document.getElementById('w-dropdown').classList.remove('open');
+  if (!e.target.closest('#wallet-modal > div') && e.target.id === 'wallet-modal') closeWalletModal();
 });
 
 // ── WebSocket ─────────────────────────────────────────
@@ -1626,11 +1676,9 @@ setInterval(checkRitualStatus, 30_000);
 <script src="/skins.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
 <script>
-window.PRIVY_APP_ID           = 'cmozitpfp01h70cl8f3k25u2y';
 window.CHRONICLE_NFT_ADDRESS  = '0x173fC3eCFA8407045Bc6D924fb54c95A5348811f';
 window.SNAKE_GAME_ADDRESS     = '0xC30e2D0a12aD53cbE72c9545B1d8aDC1Eef130Fc';
 </script>
-<script src="/wallet-bundle.js" defer></script>
 <script>
 // ── Lobby animated snakes + grid background ─────────────
 (function () {
@@ -1738,5 +1786,23 @@ window.SNAKE_GAME_ADDRESS     = '0xC30e2D0a12aD53cbE72c9545B1d8aDC1Eef130Fc';
   tick();
 })();
 </script>
+
+<!-- ═══ WALLET MODAL ════════════════════════════════════ -->
+<div id="wallet-modal" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+  <div style="background:#111827;border:1px solid #374151;border-radius:16px;padding:28px;width:100%;max-width:360px;position:relative">
+    <div style="height:3px;background:linear-gradient(to right,#19D184,rgba(25,209,132,.2),transparent);border-radius:3px 3px 0 0;margin:-28px -28px 24px"></div>
+    <div style="font-family:'Archivo Black',sans-serif;font-size:18px;color:#F3F4F6;margin-bottom:6px">Connect Wallet</div>
+    <div style="font-size:12px;color:#6B7280;margin-bottom:20px">Choose your wallet to connect</div>
+    <div id="wm-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #374151">
+      <div style="font-size:11px;color:#6B7280;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;font-family:'JetBrains Mono',monospace">Or paste address (view-only)</div>
+      <div style="display:flex;gap:8px">
+        <input id="wm-addr-input" placeholder="0x..." style="flex:1;background:#1F2937;border:1px solid #374151;border-radius:8px;padding:9px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#D1D5DB;outline:none">
+        <button onclick="connectPasted()" style="padding:9px 14px;border:1px solid #19D184;border-radius:8px;background:transparent;color:#19D184;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Use</button>
+      </div>
+    </div>
+    <button onclick="closeWalletModal()" style="position:absolute;top:16px;right:16px;background:transparent;border:none;color:#6B7280;font-size:18px;cursor:pointer;line-height:1">✕</button>
+  </div>
+</div>
 </body>
 </html>

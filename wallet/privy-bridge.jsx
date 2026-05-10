@@ -8,7 +8,10 @@ function PrivyBridge() {
 
   useEffect(() => {
     window._privy = { login, logout, ready, authenticated };
-    if (ready) window.dispatchEvent(new Event('privyready'));
+    if (ready) {
+      window._privyReady = true;
+      window.dispatchEvent(new Event('privyready'));
+    }
   }, [login, logout, ready, authenticated]);
 
   useEffect(() => {
