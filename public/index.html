@@ -1448,36 +1448,24 @@ function drawSnake(p, isMe, camX, camY, W, H) {
   }
 
   // Head
-  ctx.beginPath();
-  ctx.arc(sx, sy, r, 0, Math.PI*2);
-  ctx.fillStyle = bodyColor;
-  ctx.fill();
-
-  // Eyes
   const angle = p.a || 0;
-  const fwdX  = Math.cos(angle), fwdY = Math.sin(angle);
-  const perpX = -fwdY, perpY = fwdX;
-  const eyeR  = r * 0.22;
-  const pupR  = eyeR * 0.55;
-
-  for (const s of [-1, 1]) {
-    const ex = sx + fwdX * r * 0.35 + perpX * r * 0.55 * s;
-    const ey = sy + fwdY * r * 0.35 + perpY * r * 0.55 * s;
-    ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
-    ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fill();
-    ctx.beginPath(); ctx.arc(ex - eyeR*0.3, ey - eyeR*0.3, pupR, 0, Math.PI*2);
-    ctx.fillStyle = '#fff'; ctx.fill();
+  if (!skin || skin.id === 'default') {
+    // Default: plain circle, no eyes
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = bodyColor;
+    ctx.fill();
+  } else {
+    // Custom skin: icon replaces circle+eyes entirely
+    skin.drawHead(ctx, sx, sy, r, angle);
   }
 
-  // Skin decorations
-  if (skin) {
-    skin.drawHead(ctx, sx, sy, r, angle);
-    if (segs.length > 2) {
-      for (let i = 2; i < segs.length; i += 3) {
-        const bx = segs[i][0] - camX, by = segs[i][1] - camY;
-        if (bx < -20 || bx > W + 20 || by < -20 || by > H + 20) continue;
-        skin.drawBodyMark(ctx, bx, by, r * 0.38);
-      }
+  // Body marks
+  if (skin && segs.length > 2) {
+    for (let i = 2; i < segs.length; i += 3) {
+      const bx = segs[i][0] - camX, by = segs[i][1] - camY;
+      if (bx < -20 || bx > W + 20 || by < -20 || by > H + 20) continue;
+      skin.drawBodyMark(ctx, bx, by, r * 0.38);
     }
   }
 
